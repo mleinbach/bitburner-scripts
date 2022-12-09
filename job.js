@@ -17,13 +17,13 @@ export class BatchJob {
     }
 
     run() {
-        this.executionPlan.tasks.sort((x, y) => x.StartOrder - y.StartOrder);
-        this.executionPlan.tasks.forEach((x) => x.Task.execute(worker, x.Resources.Threads, [x.Delay]));
+        this.executionPlan.tasks.sort((x, y) => x.startOrder - y.startOrder);
+        this.executionPlan.tasks.forEach((x) => x.execute(worker, x.resources.Threads, [x.delay]));
         this.status.Status = "RUNNING";
     }
 
     cancel() {
-        this.executionPlan.tasks.forEach((x) => x.Task.cancel());
+        this.executionPlan.tasks.forEach((x) => x.cancel());
         this.status = {Status: "CANCELLED"}
     }
 
@@ -36,10 +36,10 @@ export class BatchJob {
             return this.status;
         }
 
-        this.executionPlan.tasks.sort((x, y) => x.FinishTime - y.FinishTime);
-        var success = this.executionPlan.tasks.every((x, ix) => x.FinishOrder == ix);
+        this.executionPlan.tasks.sort((x, y) => x.finishTime - y.finishTime);
+        var success = this.executionPlan.tasks.every((x, ix) => x.finishOrder == ix);
         if (success) {
-            var finishTimes = this.executionPlan.tasks.map((x) =>  x.FinishTime);
+            var finishTimes = this.executionPlan.tasks.map((x) =>  x.finishTime);
             this.status.Status = "SUCCESS";
             this.status.FinishTimes = finishTimes;
             return this.status;
@@ -48,7 +48,7 @@ export class BatchJob {
     }
 
     getRunningTasks() {
-        return this.executionPlan.tasks.filter((x) => x.Task.isRunning()).length;
+        return this.executionPlan.tasks.filter((x) => x.isRunning()).length;
     }
 
     async waitForCompletion() {

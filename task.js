@@ -1,14 +1,38 @@
 import { hgwScripts } from "./constants"
 import { NSProcess } from "./nsProcess"
 
-export class MockTask extends NSProcess {
+export class Task extends NSProcess {
     /** 
      * @param {NS} ns
-     * @param {Number} duration  
+     * @param {String} target
+     * @param {Number} duration
+     * @param {Number} finishOrder
      */
-    constructor(ns, duration) {
-        super(ns, "home", "mock.js")
+    constructor(ns, target, script, duration, finishOrder, resources, name) {
+        super(ns, target, script)
         this.duration = duration;
+        this.finishOrder = finishOrder;
+        this.resources = resources;
+        this.name = name
+        this.startOrder = null;
+        this.delay = 0;
+        this.worker = null;
+    }
+
+    totalDuration() {
+        this.duration + this.delay;
+    }
+}
+
+export class MockTask extends Task {
+    /** 
+     * @param {NS} ns
+     * @param {String} target
+     * @param {Number} finishOrder 
+     * @param {any} resources
+     */
+    constructor(ns, duration, finishOrder, resources) {
+        super(ns, "home", "mock.js", duration, finishOrder, resources, "Mock")
     }
 
     expectedDuration() {
@@ -16,10 +40,15 @@ export class MockTask extends NSProcess {
     }
 }
 
-export class HackTask extends NSProcess {
-    /** @param {NS} ns */
-    constructor(ns, target) {
-        super(ns, target, hgwScripts.Hack)
+export class HackTask extends Task {
+    /** 
+     * @param {NS} ns
+     * @param {String} target
+     * @param {Number} finishOrder 
+     * @param {any} resources
+     */
+    constructor(ns, target, finishOrder, resources) {
+        super(ns, target, hgwScripts.Hack, ns.getHackTime(target), finishOrder, "Hack");
     }
 
     expectedDuration() {
@@ -27,10 +56,15 @@ export class HackTask extends NSProcess {
     }
 }
 
-export class GrowTask extends NSProcess {
-    /** @param {NS} ns */
-    constructor(ns, target) {
-        super(ns, target, hgwScripts.Grow)
+export class GrowTask extends Task {
+    /** 
+     * @param {NS} ns
+     * @param {String} target
+     * @param {Number} finishOrder 
+     * @param {any} resources
+     */
+    constructor(ns, target, finishOrder) {
+        super(ns, target, hgwScripts.Grow, ns.getGrowTime(target), finishOrder, "Grow")
     }
 
     expectedDuration() {
@@ -38,10 +72,15 @@ export class GrowTask extends NSProcess {
     }
 }
 
-export class WeakenTask extends NSProcess {
-    /** @param {NS} ns */
-    constructor(ns, target) {
-        super(ns, target, hgwScripts.Weaken)
+export class WeakenTask extends Task {
+    /** 
+     * @param {NS} ns
+     * @param {String} target
+     * @param {Number} finishOrder 
+     * @param {any} resources
+     */
+    constructor(ns, target, finishOrder) {
+        super(ns, target, hgwScripts.Weaken, ns.getWeakenTime(target), finishOrder, "Weaken")
     }
 
     expectedDuration() {

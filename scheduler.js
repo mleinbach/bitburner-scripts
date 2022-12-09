@@ -1,14 +1,17 @@
 import { getAllHackableServers, getAllRootedServers, getRoot } from "./utilities";
-import { getHackScriptRam, getGrowScriptRam, getWeakenScriptRam, getGrowThreads, getHackThreads, getWeakenThreads } from "./hgwUtilities";
 import { BatchJob } from "./job";
 import { timing } from "./config";
 import { NSProcess } from "./nsProcess";
-import { HWGWExecutionPlan } from "./executionPlan";
+import { ExecutionPlan, ExecutionPlanBuilder } from "./executionPlan";
 
 export class Scheduler {
-    /** @param {NS} ns */
-    constructor(ns) {
+    /** 
+     * @param {NS} ns
+     * @param {typeof ExecutionPlanBuilder} executionPlanBuilder 
+     */
+    constructor(ns, executionPlanBuilder) {
         this.ns = ns;
+        this.executionPlanBuilder = executionPlanBuilder;
         this.batchRunners = [];
         this.workers = [];
         this.hackableServers = [];
@@ -26,27 +29,23 @@ export class Scheduler {
                 await this.initializeServer(target);
 
                 // create example batch job for requirements info
-                let resourceRequirements = this.getResourceRequirements(target, this.hackAmount);
-                let executionPlan = new HWGWExecutionPlan(this.ns, resourceRequirements);
+                let executionPlan = this.executionPlanBuilder.build(this.ns, target, this.hackAmount);
                 const maxBatches = executionPlan.getDuration() / (executionPlan.tasks.length * timing.batchBetweenScriptDelay);
                 
                 // allocate workers for batches
-                let reservedWorkers = {
-                    Hack: [],
-                    Grow: [],
-                    Weaken1: [],
-                    Weaken2: []
-                };
+                let reservedWorkers = {};
                 for (let i = 0; i < maxBatches; i++){
                     let jobWorkers = this.reserveWorkers(executionPlan);
-                    reservedWorkers.Hack.push(...jobWorkers.Hack);
-                    reservedWorkers.Grow.push(...jobWorkers.Grow);
-                    reservedWorkers.Weaken1.push(...jobWorkers.Weaken1);
-                    reservedWorkers.Weaken2.push(...jobWorkers.Weaken2);
+                    for (key in jobWorkers) {
+                        if (!reservedWorkers.hasOwnProperty(key)){
+                            reservedWorkers[key] = [];
+                        }
+                        reservedWorkers[key].push(...jobWorkers[key])
+                    }
                 }
 
                 // register new batchRunner process
-                let batchRunnerArgs = [maxBatches, reservedWorkers, executionPlan]
+                let batchRunnerArgs = [maxBatches, reservedWorkers]
                 let batchRunner = new NSProcess(this.ns, target, "batchRunnerService.js");
                 this.batchRunners.push(batchRunner);
 
@@ -89,8 +88,7 @@ export class Scheduler {
         hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
 
         while(this.ns.getServerSecurityLevel(target) > minSecurity && this.ns.getServerMoneyAvailable(target) < maxMoney){
-            let resourceRequirements = this.getResourceRequirements(target, hackAmount);
-            let executionPlan = new HWGWExecutionPlan(this.ns, resourceRequirements);
+            let executionPlan = this.executionPlanBuilder.build(ns, target, this.hackAmount);
             let job = new BatchJob(this.ns, target, hackAmount, executionPlan);
             // use only grow/weaken part of batch
             job.executionPlan.tasks = job.executionPlan.tasks.filter((x) => x.FinishOrder > 1);
@@ -101,14 +99,9 @@ export class Scheduler {
         }
     }
 
-    /** @param {HWGWExecutionPlan} executionPlan */
+    /** @param {ExecutionPlan} executionPlan */
     reserveWorkers(executionPlan) {
-        let reservedWorkers = {
-            Hack: [],
-            Grow: [],
-            Weaken1: [],
-            Weaken2: []
-        }
+        let reservedWorkers = {};
         executionPlan.tasks.forEach((x) => {
             let ix = this.workers.findIndex((y) => y.FreeRam >= x.Resources.Ram);
             this.workers[ix].freeRam -= x.Resources.Ram;
@@ -136,31 +129,5 @@ export class Scheduler {
             this.workers[ix].freeRam += x.Resources.Ram;
             this.workers[ix].reservedRam -= x.Resources.Ram;
         });
-    }
-
-    /**
-     * @param {String} target 
-     * @param {Number} hackAmount 
-     * @returns {any}
-     */
-    getResourceRequirements(target, hackAmount) {
-        const hackThreads = getHackThreads(this.ns, target, hackAmount);
-        const growThreads = getGrowThreads(this.ns, target, hackAmount);
-        const weakenThreads = getWeakenThreads(this.ns, target, hackAmount);
-
-        return {
-            Hack: {
-                Threads: hackThreads,
-                Ram: getHackScriptRam(this.ns) * hackThreads
-            },
-            Grow: {
-                Threads: growThreads,
-                Ram: getGrowScriptRam(this.ns) * growThreads
-            },
-            Weaken: {
-                Threads: weakenThreads,
-                Ram: getWeakenScriptRam(this.ns) * weakenThreads
-            }
-        };
     }
 }
