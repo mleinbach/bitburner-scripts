@@ -6,5 +6,6 @@ export async function main(ns) {
     let target = ns.args[1];
     let maxBatches = ns.args[2];
     let workers = JSON.parse(ns.args[3]);
-    await new BatchRunner(ns, target, maxBatches, workers).run();
+    let executionPlan = JSON.parse(ns.args[4])
+    await new BatchRunner(ns, target, maxBatches, workers, executionPlan).run();
 }
