@@ -1,5 +1,4 @@
 import { HWGWExecutionPlan } from "./executionPlan";
-import { getWeakenThreads, getHackThreads, getGrowThreads } from "./hgwUtilities";
 
 export class BatchJob {
     /**

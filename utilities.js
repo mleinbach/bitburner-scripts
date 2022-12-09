@@ -51,42 +51,6 @@ export function getMaxScriptThreads(ns, hostname, script) {
     return Math.floor(ns.getServerMaxRam(hostname) / ns.getScriptRam(script));
 }
 
-/** @param {NS} ns */
-export function runScript(ns, hostname, script, scriptArgs = [], threads = null) {
-    var maxThreads = getMaxScriptThreads(ns, hostname, script);
-
-    if (threads == null) {
-        threads = maxThreads;
-    }
-    if (threads <= 0) {
-        ns.tprint(`Too many threads for ${hostname} (requested/max): ${threads}/${maxThreads}`);
-        return;
-    }
-
-    if (ns.scriptRunning(script, hostname)) {
-        ns.scriptKill(script, hostname);
-    }
-
-    ns.tprint(`Running ${script} [${scriptArgs}] on ${hostname} with ${threads} threads.`)
-    ns.scp(script, hostname);
-    ns.exec(script, hostname, threads, ...scriptArgs);
-}
-
-export function orderBy(property) {
-    var sortOrder = 1;
-    if (property[0] === "-") {
-        sortOrder = -1;
-        property = property.substr(1);
-    }
-    return function (a, b) {
-        /* next line works with strings and numbers, 
-         * and you may want to customize it to your needs
-         */
-        var result = (a[property] < b[property]) ? -1 : (a[property] > b[property]) ? 1 : 0;
-        return result * sortOrder;
-    }
-}
-
 /** 
  * @param {NS} ns
  * @returns String[]
