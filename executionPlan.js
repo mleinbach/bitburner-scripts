@@ -1,61 +1,63 @@
 import { HackTask, GrowTask, WeakenTask, MockTask } from "./task"
 
 export class MockExecutionPlan {
-    constructor(ns) {
+    /** @param {NS} ns */
+    constructor(ns, resourceRequirements) {
         this.ns = ns;
+        this.resourceRequirements = resourceRequirements;
         this.tasks = this.#createTasks();
     }
 
     #createTasks() {
-        var task1 = new HackTask(this.ns, 5000);
-        var task2 = new GrowTask(this.ns, 10000);
-        var task3 = new WeakenTask(this.ns, 7000);
-        var task4 = new WeakenTask(this.ns, 10000);
+        var task1 = new MockTask(this.ns, 5000);
+        var task2 = new MockTask(this.ns, 10000);
+        var task3 = new MockTask(this.ns, 7000);
+        var task4 = new MockTask(this.ns, 10000);
 
         var plan = [
             {
                 Name: "Task1",
-                Task: new MockTask(this.ns, 5000),
-                TaskDuration: 5000,
+                Task: task1,
+                TaskDuration: task1.expectedDuration(),
                 FinishOrder: 0,
                 StartOrder: null,
                 Delay: null,
                 TotalDuration: null,
                 Worker: null,
-                Resources: this.resourceRequirements.Hack
+                Resources: this.resourceRequirements.Mock
             },
             {
                 Name: "Task2",
-                Task: weakenTask1,
-                Duration: weakenTask1.expectedDuration(),
+                Task: task2,
+                Duration: task2.expectedDuration(),
                 FinishOrder: 1,
                 StartOrder: null,
                 Delay: null,
                 TotalDuration: null,
                 Worker: null,
-                Resources: this.resourceRequirements.Weaken
+                Resources: this.resourceRequirements.Mock
             },
             {
                 Name: "Task3",
-                Task: growTask,
-                Duration: growTask.expectedDuration(),
+                Task: task3,
+                Duration: task3.expectedDuration(),
                 FinishOrder: 2,
                 StartOrder: null,
                 Delay: null,
                 TotalDuration: null,
                 Worker: null,
-                Resources: this.resourceRequirements.Grow
+                Resources: this.resourceRequirements.Mock
             },
             {
                 Name: "Task4",
-                Task: weakenTask2,
-                Duration: weakenTask2.expectedDuration(),
+                Task: task4,
+                Duration: task4.expectedDuration(),
                 FinishOrder: 3,
                 StartOrder: null,
                 Delay: null,
                 TotalDuration: null,
                 Worker: null,
-                Resources: this.resourceRequirements.Weaken
+                Resources: this.resourceRequirements.Mock
             }
         ]
 
@@ -97,10 +99,14 @@ export class MockExecutionPlan {
         return plan;
     }
 
-
+    /** @returns {Number} */
+    getDuration() {
+        return this.tasks.map((x) => x.TotalDuration).reduce((x, y) => (x - y) > 0 ? x : y);
+    }
 }
 
 export class HWGWExecutionPlan {
+    /** @param {NS} ns */
     constructor(ns, resourceRequirements) {
         this.ns = ns;
         this.resourceRequirements = resourceRequirements;
@@ -196,6 +202,11 @@ export class HWGWExecutionPlan {
         plan.forEach((x, ix) => x.StartOrder = ix);
 
         return plan;
+    }
+
+    /** @returns {Number} */
+    getDuration() {
+        return this.tasks.map((x) => x.TotalDuration).reduce((x, y) => (x - y) > 0 ? x : y);
     }
 }
 
