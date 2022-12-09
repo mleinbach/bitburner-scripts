@@ -1,17 +1,20 @@
+import { HWGWExecutionPlan } from "./executionPlan";
 import { BatchJob } from "./job";
 
 export class BatchRunner {
-    workerPool;
-
     /**
      * @param {NS} ns
      * @param {String} target
+     * @param {Number} maxBatches
+     * @param {any} workers
+     * @param {HWGWExecutionPlan} executionPlan
      */
-    constructor(ns, target, maxBatches, workers) {
+    constructor(ns, target, maxBatches, workers, executionPlan) {
         this.ns = ns;
         this.target = target;
         this.maxBatches = maxBatches;
         this.workers = workers;
+        this.executionPlan = executionPlan;
         this.batches = [];
         this.needsReset = false;
         this.hackAmount = 0.10;
@@ -52,8 +55,8 @@ export class BatchRunner {
             this.batches = runningBatches;
 
             if (this.batches.length < this.maxBatches) {
-                var job = new BatchJob(this.ns, this.target, this.hackAmount)
-                this.assignsWorkerToJob(job);
+                var job = new BatchJob(this.ns, this.target, this.hackAmount, this.executionPlan)
+                this.assignWorkersToJob(job);
                 job.run();
             }
 
@@ -74,7 +77,7 @@ export class BatchRunner {
         while(this.ns.getServerSecurityLevel(this.target) > minSecurity && this.ns.getServerMoneyAvailable(this.target) < maxMoney){
             var job = new BatchJob(this.ns, this.target, this.hackAmount);
             // use only grow/weaken part of batch
-            job.executionPlan = job.executionPlan.filter((x) => x.FinishOrder > 1);
+            job.executionPlan.tasks = job.executionPlan.tasks.filter((x) => x.FinishOrder > 1);
             this.assignWorkersToJob(job);
             job.run();
             await job.waitForCompletion();
@@ -84,14 +87,14 @@ export class BatchRunner {
 
     /** @param {BatchJob} job */
     assignWorkersToJob(job) {
-        job.executionPlan.forEach((x) => {
+        job.executionPlan.tasks.forEach((x) => {
             x.Worker = this.workers[x.Name].shift();
         })
     }
 
     /** @param {BatchJob} job */
     releaseWorkers(job){
-        job.executionPlan.forEach((x) => {
+        job.executionPlan.tasks.forEach((x) => {
             this.workers[x.Name].push(x.Worker);
             x.Worker=null;
         });
