@@ -17,5 +17,7 @@ export const hgwScripts = {
     Weaken: "weaken.js",
 }
 
+export const BATCH_RUNNER_SCRIPT = "batchRunnerService.js"
+
 export const ServerBaseGrowthRate=1.03;
 export const ServerMaxGrowthRate=1.0035;
