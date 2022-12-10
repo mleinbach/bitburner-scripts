@@ -63,10 +63,13 @@ export class BatchRunner {
             if (this.batches.length < this.maxBatches) {
                 let executionPlan = this.executionPlanBuilder.build(this.ns, this.target, this.hackAmount);
                 let job = new BatchJob(this.ns, this.target, this.hackAmount, executionPlan)
-                this.assignWorkersToJob(job);
-                job.run();
-                this.batches.push(job);
-                this.logger.info(`Started new batch; runningBatches=${this.batches.length}`);
+                if(this.assignWorkersToJob(job)){
+                    job.run();
+                    this.batches.push(job);
+                    this.logger.info(`Started new batch; runningBatches=${this.batches.length}`);
+                } else {
+                    this.releaseWorkers(job);
+                }
             }
 
             await this.ns.sleep(100);
@@ -97,16 +100,24 @@ export class BatchRunner {
 
     /** @param {BatchJob} job */
     assignWorkersToJob(job) {
-        job.executionPlan.tasks.forEach((x) => {
-            x.worker = this.workers[x.name].shift();
-        })
+        let success = true;
+        for (let task of job.executionPlan.tasks){
+            if (this.workers[task.name].length == 0) {
+                this.logger.warn("no workers available for batch");
+                success = false;
+                break;
+            }
+            task.worker = this.workers[task.name].shift();
+        }
+        return success;
     }
 
     /** @param {BatchJob} job */
     releaseWorkers(job){
-        job.executionPlan.tasks.forEach((x) => {
-            this.workers[x.name].push(x.worker);
-            x.worker=null;
-        });
+        for (let task of job.executionPlan.tasks) {
+            if (task.worker !== null) {
+                this.workers[task.name].push(task.worker);
+            }
+        }
     }
 }
