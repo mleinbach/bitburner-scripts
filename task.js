@@ -20,7 +20,7 @@ export class Task extends NSProcess {
     }
 
     totalDuration() {
-        this.duration + this.delay;
+        return this.duration + this.delay;
     }
 
     execute(args) {
