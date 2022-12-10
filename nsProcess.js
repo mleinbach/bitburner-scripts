@@ -25,7 +25,7 @@ export class NSProcess {
             this.logger.debug(`${this.script}. ${worker}, ${threads}, ${this.id}, ${this.target} ${JSON.stringify(args)}`)
             this.pid = this.ns.exec(this.script, worker, threads, this.id, this.target, ...args);
             if (this.pid <= 0) {
-                throw `${this.script}, ${this.worker}`
+                throw new Error(`${this.script}, ${this.worker}`);
             }
             this.startTime = Date.now();
         }
