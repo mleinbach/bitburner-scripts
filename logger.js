@@ -19,30 +19,30 @@ export class Logger {
         this.verbosity = verbosity
     }
 
-    success(msg){
+    success(msg) {
         this.#log(msg, LogLevel.success);
     }
-    
+
     error(msg) {
         this.#log(msg, LogLevel.error);
     }
-    
+
     warn(msg) {
         this.#log(msg, LogLevel.warn);
     }
-    
+
     info(msg) {
 
         this.#log(msg, LogLevel.info);
     }
-    
+
     debug(msg) {
         this.#log(msg, LogLevel.debug);
     }
-    
+
     /** @param {NS} ns */
     #log(msg, severity) {
-        if (this.#checkVerbosity(severity))  {
+        if (this.#checkVerbosity(severity)) {
             this.ns.print(`[${(new Date()).toISOString()}] [${severity}] [${this.name}] ${msg}`);
         }
     }
@@ -66,9 +66,9 @@ export class Logger {
     disableNSLogs() {
         this.ns.disableLog("disableLog");
         for (var key in this.ns) {
-        if (typeof ns[key] === "function") {
-            ns.disableLog(key);
+            if (typeof this.ns[key] === "function") {
+                this.ns.disableLog(key);
+            }
         }
-    }
     }
 }
