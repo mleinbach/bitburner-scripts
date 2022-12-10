@@ -1,11 +1,11 @@
-import { HWGWExecutionPlan } from "./executionPlan";
+import { ExecutionPlan } from "./executionPlan";
 
 export class BatchJob {
     /**
      * @param {NS} ns
      * @param {String} target
      * @param {Number} hackAmount
-     * @param {HWGWExecutionPlan} executionPlan
+     * @param {ExecutionPlan} executionPlan
      */
     constructor(ns, target, hackAmount, executionPlan) {
         this.ns = ns;
@@ -18,7 +18,7 @@ export class BatchJob {
 
     run() {
         this.executionPlan.tasks.sort((x, y) => x.startOrder - y.startOrder);
-        this.executionPlan.tasks.forEach((x) => x.execute(worker, x.resources.Threads, [x.delay]));
+        this.executionPlan.tasks.forEach((x) => x.execute([x.delay]));
         this.status.Status = "RUNNING";
     }
 
