@@ -4,14 +4,6 @@ export const securityModifiers = {
     "grow": 0.004
 };
 
-export const logLevels = {
-    "debug": ["DEBUG", 5],
-    "info": ["INFO", 4],
-    "warn": ["WARN", 3],
-    "error": ["ERROR", 2],
-    "fatal": ["FATAL", 1]
-}
-
 export const hgwOperations = {
     Hack: "Hack",
     Grow: "Grow",

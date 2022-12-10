@@ -1,49 +1,10 @@
-import { logLevels, hgwScripts} from "./constants.js"
-import { verbosity } from "./config.js"
+import { hgwScripts} from "./constants.js"
 
 export function getOperationScript(operation) {
     if (operation.startsWith("Weaken")) {
         return hgwScripts.Weaken;
     }
     return hgwScripts[operation]
-}
-
-export function logFatal(ns, msg) {
-    log(ns, msg, logLevels.fatal);
-}
-
-export function logError(ns, msg) {
-    log(ns, msg, logLevels.error);
-}
-
-export function logWarn(ns, msg) {
-    log(ns, msg, logLevels.warn);
-}
-
-export function logInfo(ns, msg) {
-    log(ns, msg, logLevels.info);
-}
-
-export function logDebug(ns, msg) {
-    log(ns, msg, logLevels.debug);
-}
-
-/** @param {NS} ns */
-export function log(ns, msg, severity) {
-    if (verbosity >= severity[1])  {
-        ns.print(`[${(new Date()).toISOString()}] [${severity}] ${msg}`);
-    }
-}
-
-/** @param {NS} ns */
-export function disableNSLogs(ns) {
-    // disable the log for disabling the logs
-    ns.disableLog("disableLog");
-    for (var key in ns) {
-        if (typeof ns[key] === "function") {
-            ns.disableLog(key);
-        }
-    }
 }
 
 /** @param {NS} ns */

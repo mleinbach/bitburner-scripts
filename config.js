@@ -11,7 +11,7 @@ export const timing = {
     "batchBetweenScriptDelay": 200
 };
 
-export const verbosity = 5;
+export const verbosity = 4;
 
 export const hackAmount = 0.25;
 

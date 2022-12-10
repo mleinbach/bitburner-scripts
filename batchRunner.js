@@ -1,5 +1,6 @@
 import { ExecutionPlanBuilder } from "./executionPlan";
 import { BatchJob } from "./job";
+import { Logger } from "./logger";
 
 export class BatchRunner {
     /**
@@ -22,24 +23,29 @@ export class BatchRunner {
             Status: "N/A",
             FinishTimes: [0, 0, 0, 0]
         }
+        this.logger = new Logger(this.ns, "BatchRunner");
+        this.logger.disableNSLogs();
     }
 
     async run() {
         while(true) {
             // check completed batches for failures
-            var runningBatches = [];
+            let runningBatches = [];
             for(var batch of this.batches) {
-                var batchStatus = batch.getStatus();
+                let batchStatus = batch.getStatus();
                 
                 if (batchStatus.Status === "FAILED") {
+                    this.logger.error(`tasks ran out of order`);
                     this.needsReset = true;
                 } else if (batchStatus.Status === "SUCCESS"){
-                    var lastTaskTime = this.lastBatchStatus.FinishTimes.reduce((x, y) => x - y >= 0 ? x : y);
-                    var firstTaskTime = batchStatus.FinishTimes.reduce((x, y) => x - y <= 0 ? x : y);
+                    let lastTaskTime = this.lastBatchStatus.FinishTimes.reduce((x, y) => x - y >= 0 ? x : y);
+                    let firstTaskTime = batchStatus.FinishTimes.reduce((x, y) => x - y <= 0 ? x : y);
                     if (lastTaskTime < firstTaskTime) {
                         this.lastBatchStatus = batchStatus;
                         this.releaseWorkers(batch);
+                        this.logger.success(`batch succeeded`);
                     } else {
+                        this.logger.error(`batches ran out of order`);
                         this.needsReset = true;
                     }
                 } else {
@@ -56,9 +62,11 @@ export class BatchRunner {
 
             if (this.batches.length < this.maxBatches) {
                 let executionPlan = this.executionPlanBuilder.build(this.ns, this.target, this.hackAmount);
-                var job = new BatchJob(this.ns, this.target, this.hackAmount, executionPlan)
+                let job = new BatchJob(this.ns, this.target, this.hackAmount, executionPlan)
                 this.assignWorkersToJob(job);
                 job.run();
+                this.batches.push(job);
+                this.logger.info(`Started new batch; runningBatches=${this.batches.length}`);
             }
 
             await this.ns.sleep(100);
@@ -72,12 +80,12 @@ export class BatchRunner {
         });
         this.batches = [];
 
-        var minSecurity = this.ns.getServerMinSecurityLevel();
-        var maxMoney = this.ns.getServerMaxMoney();
+        let minSecurity = this.ns.getServerMinSecurityLevel();
+        let maxMoney = this.ns.getServerMaxMoney();
 
         while(this.ns.getServerSecurityLevel(this.target) > minSecurity && this.ns.getServerMoneyAvailable(this.target) < maxMoney){
             let executionPlan = this.executionPlanBuilder.build(this.ns, this.target, this.hackAmount);
-            var job = new BatchJob(this.ns, this.target, this.hackAmount, executionPlan);
+            let job = new BatchJob(this.ns, this.target, this.hackAmount, executionPlan);
             // use only grow/weaken part of batch
             job.executionPlan.tasks = job.executionPlan.tasks.filter((x) => x.finishOrder > 1);
             this.assignWorkersToJob(job);

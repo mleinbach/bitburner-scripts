@@ -1,8 +1,10 @@
-import { getAllPurchasedServers, logInfo, disableNSLogs } from "utilities"
+import { getAllPurchasedServers } from "utilities"
+import { Logger } from "./logger";
 
 /** @param {NS} ns */
 export async function main(ns) {
-    disableNSLogs(ns);
+    let logger = new Logger(ns, "autoPurchaseServers");
+    logger.disableNSLogs();
     // How much RAM each purchased server will have. In this case, it'll
     // be 8GB.
     var ram = 8;
@@ -23,10 +25,10 @@ export async function main(ns) {
             var hostname = ns.purchaseServer("pserv-" + numServers, ram);
             ns.scp(["weaken.js", "grow.js", "hack.js"], hostname);
             numServers = getAllPurchasedServers(ns).length;
-            logInfo(ns, `autopurchaseServer.js:main - purchased server ${hostname}`);
+            logger.info(`autopurchaseServer.js:main - purchased server ${hostname}`);
         }
         else {
-            logInfo(ns, "autopurchaseServer.js:main - waiting for money");
+            logger.info("autopurchaseServer.js:main - waiting for money");
             await ns.sleep(30000);
         }
     }

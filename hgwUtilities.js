@@ -1,7 +1,5 @@
-import { logInfo, getOperationScript } from "./utilities"
-import { securityModifiers, hgwOperations, hgwScripts } from "./constants"
-import { timing, scripts } from "./config"
-import { Task } from "./task";
+import { securityModifiers, hgwOperations } from "./constants"
+import { scripts } from "./config"
 
 /** @param {NS} ns */
 export function getWeakenScriptRam(ns) {

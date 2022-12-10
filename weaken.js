@@ -1,5 +1,3 @@
-//import { logInfo } from "utilities.js"
-
 /** @param {NS} ns */
 export async function main(ns) {
     let id = ns.args[0]

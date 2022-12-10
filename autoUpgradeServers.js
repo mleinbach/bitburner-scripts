@@ -1,15 +1,17 @@
-import { getAllPurchasedServers, logInfo, disableNSLogs } from "./utilities.js";
+import { Logger } from "./logger.js";
+import { getAllPurchasedServers } from "./utilities.js";
 
 /** @param {NS} ns */
 export async function main(ns) {
-    disableNSLogs(ns);
+    let logger = new Logger(ns, "autoUpgradeServers:main");
+    logger.disableNSLogs();
 
     var servers = getAllPurchasedServers(ns);
     var maxRam = ns.getPurchasedServerMaxRam();
     var ram = 8;
 
     while (ram <= maxRam) {
-        logInfo(ns, `autoUpgradeServers.js:main - Current upgrade tier = ${ram}GB`)
+        logger.info(`autoUpgradeServers.js:main - Current upgrade tier = ${ram}GB`)
         for (const server of servers) {
             if (ram > ns.getServerMaxRam(server)) {
                 await upgradeServer(ns, server, ram);
@@ -21,7 +23,9 @@ export async function main(ns) {
 
 /** @param {NS} ns */
 export async function upgradeServer(ns, hostname, ram) {
-    logInfo(ns, `autoUpgradeServers.js:main - upgrading ${hostname}`);
+    let logger = new Logger(ns, "autoUpgradeServers:upgradeServer");
+    logger.disableNSLogs();
+    logger.info(`autoUpgradeServers.js:main - upgrading ${hostname}`);
     var cost = ns.getPurchasedServerCost(ram);
     while (cost >= ns.getServerMoneyAvailable("home") * 0.25) {
         await ns.sleep(60000);
