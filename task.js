@@ -22,6 +22,10 @@ export class Task extends NSProcess {
     totalDuration() {
         this.duration + this.delay;
     }
+
+    execute(args) {
+        return super.execute(this.worker, this.resources.Threads, args);
+    }
 }
 
 export class MockTask extends Task {
@@ -33,6 +37,10 @@ export class MockTask extends Task {
      */
     constructor(ns, duration, finishOrder, resources) {
         super(ns, "home", "mock.js", duration, finishOrder, resources, "Mock")
+    }
+
+    execute(args) {
+        return super.execute([this.duration, ...args]);
     }
 
     expectedDuration() {
