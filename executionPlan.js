@@ -26,10 +26,10 @@ export class MockExecutionPlanBuilder extends ExecutionPlanBuilder {
     static build(ns, target, hackAmount) {
         let resourceRequirements = MockExecutionPlanBuilder.getResourceRequirements(ns);
         let plan = new ExecutionPlan(ns, resourceRequirements);
-        plan.tasks.push(new MockTask(ns, 5000, 0, resourceRequirements.Mock));
-        plan.tasks.push(new MockTask(ns, 10000, 1, resourceRequirements.Mock));
-        plan.tasks.push(new MockTask(ns, 7000, 2, resourceRequirements.Mock));
-        plan.tasks.push(new MockTask(ns, 10000, 3, resourceRequirements.Mock));
+        plan.tasks.push(new MockTask(ns, 1000, 0, resourceRequirements.Mock));
+        plan.tasks.push(new MockTask(ns, 5000, 1, resourceRequirements.Mock));
+        plan.tasks.push(new MockTask(ns, 3000, 2, resourceRequirements.Mock));
+        plan.tasks.push(new MockTask(ns, 5000, 3, resourceRequirements.Mock));
         plan.compile();
         return plan;
     }
