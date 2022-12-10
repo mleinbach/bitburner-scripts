@@ -1,9 +1,9 @@
 {
     "bitburner.authToken" : "Ei+m3T4D8iUie6SM3j+PwEAWdhihTBRA54k3iX2XSyM6/ztlBte0FqOIruQnXqlB",
     "bitburner.scriptRoot": ".",
-    "bitburner.fileWatcher.enable": true,
+    "bitburner.fileWatcher.enable": false,
     "bitburner.showPushSuccessNotification": true,
-    "bitburner.showFileWatcherEnabledNotification": true,
+    "bitburner.showFileWatcherEnabledNotification": false,
     "javascript.preferences.importModuleSpecifier": "non-relative",
     "files.exclude": {
         "tsconfig.json": true,
