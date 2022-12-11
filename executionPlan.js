@@ -2,6 +2,7 @@ import { HackTask, GrowTask, WeakenTask, MockTask } from "./task"
 import { getHackScriptRam, getGrowScriptRam, getWeakenScriptRam } from "./hgwUtilities";
 import { getGrowThreads, getHackThreads, getWeakenThreads } from "./hgwUtilities";
 import { timing } from "./config";
+import { Logger } from "./logger";
 
 export class ExecutionPlanBuilder  {
     /** 
@@ -11,19 +12,20 @@ export class ExecutionPlanBuilder  {
      * @returns {ExecutionPlan} executionPlan
      */
     static build(ns, target, hackAmount) {
-        throw "Not Implemented"
+        throw new Error("Not Implemented");
     }
 
     /**
      * @param {NS} ns
      */
     static getResourceRequirements(ns) {
-        throw "Not Implemented"
+        throw new Error("Not Implemented");
     }
 }
 
 export class MockExecutionPlanBuilder extends ExecutionPlanBuilder {
     static build(ns, target, hackAmount) {
+        new Logger(ns, "MockExecutionPlanBuilder").debug("build()");
         let resourceRequirements = MockExecutionPlanBuilder.getResourceRequirements(ns);
         let plan = new ExecutionPlan(ns, resourceRequirements);
         plan.tasks.push(new MockTask(ns, 1000, 0, resourceRequirements.Mock));
@@ -38,6 +40,7 @@ export class MockExecutionPlanBuilder extends ExecutionPlanBuilder {
      * @param {NS} ns
      */
     static getResourceRequirements(ns) {
+        new Logger(ns, "MockExecutionPlanBuilder").debug("getResourceRequirements()");
         return {
             Mock: {
                 Threads: 1,
@@ -50,6 +53,7 @@ export class MockExecutionPlanBuilder extends ExecutionPlanBuilder {
 
 export class HWGWExecutionPlanBuilder extends ExecutionPlanBuilder {
     static build(ns, target, hackAmount) {
+        new Logger(ns, "HWGWExcutionPlanBuilder").debug(`build(${ns}, ${target}, ${hackAmount})`);
         let resourceRequirements = HWGWExecutionPlanBuilder.getResourceRequirements(ns, target, hackAmount);
         let plan = new ExecutionPlan(ns, resourceRequirements);
         plan.tasks.push(new HackTask(ns, target, 0, resourceRequirements.Hack));
@@ -66,22 +70,23 @@ export class HWGWExecutionPlanBuilder extends ExecutionPlanBuilder {
      * @returns {any}
      */
     static getResourceRequirements(ns, target, hackAmount) {
-        const hackThreads = getHackThreads(this.ns, target, hackAmount);
-        const growThreads = getGrowThreads(this.ns, target, hackAmount);
-        const weakenThreads = getWeakenThreads(this.ns, target, hackAmount);
+        new Logger(ns, "HWGWExcutionPlanBuilder").debug(`getResourceRequirements(${ns}, ${target}, ${hackAmount})`);
+        const hackThreads = getHackThreads(ns, target, hackAmount);
+        const growThreads = getGrowThreads(ns, target, hackAmount);
+        const weakenThreads = getWeakenThreads(ns, target, hackAmount);
 
         return {
             Hack: {
                 Threads: hackThreads,
-                Ram: getHackScriptRam(this.ns) * hackThreads
+                Ram: getHackScriptRam(ns) * hackThreads
             },
             Grow: {
                 Threads: growThreads,
-                Ram: getGrowScriptRam(this.ns) * growThreads
+                Ram: getGrowScriptRam(ns) * growThreads
             },
             Weaken: {
                 Threads: weakenThreads,
-                Ram: getWeakenScriptRam(this.ns) * weakenThreads
+                Ram: getWeakenScriptRam(ns) * weakenThreads
             }
         };
     }
@@ -90,12 +95,15 @@ export class HWGWExecutionPlanBuilder extends ExecutionPlanBuilder {
 export class ExecutionPlan {
     /** @param {NS} ns */
     constructor(ns, resourceRequirements) {
+        this.logger = new Logger(ns, "ExecutionPlan");
+        this.logger.debug("constructor()");
         this.ns = ns;
         this.resourceRequirements = resourceRequirements;
         this.tasks = [];
     }
 
     compile() {
+        this.logger.debug("compile()");
         var longestTask = this.tasks.reduce((x, y) => {
             if (y.duration > x.duration) {
                 return y
@@ -133,6 +141,7 @@ export class ExecutionPlan {
 
     /** @returns {Number} */
     getDuration() {
+        this.logger.debug("getDuration()");
         return this.tasks.map((x) => x.totalDuration()).reduce((x, y) => (x - y) > 0 ? x : y);
     }
 }

@@ -1,5 +1,6 @@
 import { securityModifiers, hgwOperations } from "./constants"
 import { scripts } from "./config"
+import { Logger } from "./logger";
 
 /** @param {NS} ns */
 export function getWeakenScriptRam(ns) {
@@ -20,9 +21,10 @@ export function getHackScriptRam(ns) {
  *  @param {Number} threads
  *  @returns {Number} security increase caused by running hack() with given number of threads
  */
-export function getHackSecurity(threads) {
+export function getHackSecurity(ns, threads) {
+    new Logger(ns, "hgwUtilities").debug(`getHackSecurity(${ns}, ${threads})`);
     if (threads <= 0) {
-        throw `utilities.js:getHackSecurity - param threads must be > 0, got ${threads}`;
+        throw new Error(`param threads must be > 0, got ${threads}`);
     }
     return threads * securityModifiers.hack;
 }
@@ -31,26 +33,17 @@ export function getHackSecurity(threads) {
  *  @param {Number} threads
  *  @returns {Number} security increase caused by running grow() with given number of threads
  */
-export function getGrowSecurity(threads) {
+export function getGrowSecurity(ns, threads) {
+    new Logger(ns, "hgwUtilities").debug(`getGrowSecurity(${ns}, ${threads})`);
     if (threads <= 0) {
-        throw `utilities.js:getGrowSecurity - param threads must be > 0, got ${threads}`;
+        throw new Error(`param threads must be > 0, got ${threads}`);
     }
     return threads * securityModifiers.grow;
 }
 
-/** @param {NS} ns
- *  @param {Number} threads
- *  @returns {Number} security increase caused by running weaken() with given number of threads
- */
-export function getWeakenSecurity(threads) {
-    if (threads <= 0) {
-        throw `utilities.js:getWeakenSecurity - param threads must be > 0, got ${threads}`;
-    }
-    return threads * securityModifiers.weaken;
-}
-
 /** @param {NS} ns */
-export function weakenAnalyzeThreads(securityAmount) {
+export function weakenAnalyzeThreads(ns, securityAmount) {
+    new Logger(ns, "hgwUtilities").debug(`weakenAnalyzeThreads(${ns}, ${securityAmount})`);
     const threadsNeeded = Math.ceil(securityAmount / securityModifiers.weaken);
     return threadsNeeded;
 }
@@ -58,37 +51,40 @@ export function weakenAnalyzeThreads(securityAmount) {
 
 /** @param {NS} ns */
 export function getWeakenThreads(ns, target, hackAmount=0.10, operation = null) {
+    new Logger(ns, "hgwUtilities").debug(`getWeakenThreads(${ns}, ${target}, ${hackAmount}, ${operation})`);
     const hackThreads = getHackThreads(ns, target, hackAmount);
     const growThreads = getGrowThreads(ns, target, hackAmount);
 
     var targetSecurityIncrease = 0;
     if (operation == hgwOperations.Grow) {
-        targetSecurityIncrease = getGrowSecurity(growThreads);
+        targetSecurityIncrease = getGrowSecurity(ns, growThreads);
     } else if (operation == hgwOperations.Hack) {
-        targetSecurityIncrease = getHackSecurity(hackThreads);
+        targetSecurityIncrease = getHackSecurity(ns, hackThreads);
     }
     else {
-        targetSecurityIncrease = Math.max(getGrowSecurity(growThreads), getHackSecurity(hackThreads));
+        targetSecurityIncrease = Math.max(getGrowSecurity(ns, growThreads), getHackSecurity(ns, hackThreads));
     }
-    return weakenAnalyzeThreads(targetSecurityIncrease) + 1;
+    return weakenAnalyzeThreads(ns, targetSecurityIncrease) + 1;
 }
 
 /** @param {NS} ns */
 export function getGrowThreads(ns, target, hackAmount = 0.10) {
+    new Logger(ns, "hgwUtilities").debug(`getGrowThreads(${ns}, ${target}, ${hackAmount})`);
     const serverMaxMoney = ns.getServerMaxMoney(target);
     const hackMoney = serverMaxMoney * hackAmount;
     const availableMoney = Math.max(serverMaxMoney - hackMoney, 1);
     const growAmount = serverMaxMoney - availableMoney;
     const growMultiplier = (growAmount / availableMoney) + 1
-    const threadsNeeded = Math.ceil(ns.growthAnalyze(target, growMultiplier));
+    const threadsNeeded = Math.max(1, Math.ceil(ns.growthAnalyze(target, growMultiplier)));
 
     return threadsNeeded;
 }
 
 /** @param {NS} ns */
 export function getHackThreads(ns, target, hackAmount = 0.10) {
+    new Logger(ns, "hgwUtilities").debug(`getHackThreads(${ns}, ${target}, ${hackAmount})`);
     const money = ns.getServerMaxMoney(target) * hackAmount;
-    const threadsNeeded = Math.floor(ns.hackAnalyzeThreads(target, money));
+    const threadsNeeded = Math.max(1, Math.floor(ns.hackAnalyzeThreads(target, money)));
 
     return threadsNeeded;
 }

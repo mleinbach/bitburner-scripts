@@ -1,4 +1,6 @@
 import { ExecutionPlan } from "./executionPlan";
+import { Logger } from "./logger";
+import { ExecError } from "./nsProcess";
 
 export class BatchJob {
     /**
@@ -9,6 +11,7 @@ export class BatchJob {
      */
     constructor(ns, target, hackAmount, executionPlan) {
         this.ns = ns;
+        this.logger = new Logger(this.ns, "BatchJob");
         this.target = target;
         this.hackAmount = hackAmount;
         this.executionPlan = executionPlan;
@@ -17,17 +20,27 @@ export class BatchJob {
     }
 
     run() {
+        //this.logger.debug(`run()`);
         this.executionPlan.tasks.sort((x, y) => x.startOrder - y.startOrder);
-        this.executionPlan.tasks.forEach((x) => x.execute([x.delay]));
-        this.status.Status = "RUNNING";
+        try {
+            this.executionPlan.tasks.forEach((x) => x.execute([x.delay]));
+            this.status.Status = "RUNNING";
+        } catch(e) {
+            if (e instanceof ExecError){
+                return false;
+            }
+        }
+        return true;
     }
 
     cancel() {
+        //this.logger.debug(`cancel()`);
         this.executionPlan.tasks.forEach((x) => x.cancel());
         this.status = {Status: "CANCELLED"}
     }
 
     getStatus() {
+        //this.logger.debug(`getStatus()`);
         if (this.status.Status !== "RUNNING") {
             return this.status;
         }
@@ -48,10 +61,12 @@ export class BatchJob {
     }
 
     getRunningTasks() {
+        //this.logger.debug(`getRunningTasks()`);
         return this.executionPlan.tasks.filter((x) => x.isRunning()).length;
     }
 
     async waitForCompletion() {
+        //this.logger.debug(`waitForCompletion()`);
         while(this.getStatus().Status === "RUNNING"){
             await this.ns.sleep(1000);
         }

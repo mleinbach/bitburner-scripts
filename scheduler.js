@@ -1,4 +1,4 @@
-import { getAllHackableServers, getAllRootedServers, getRoot } from "./utilities";
+import { getAllHackableServers, getAllRootedServers, getRoot, updateScripts } from "./utilities";
 import { BatchJob } from "./job";
 import { timing } from "./config";
 import { NSProcess } from "./nsProcess";
@@ -12,35 +12,35 @@ export class Scheduler {
      * @param {typeof ExecutionPlanBuilder} executionPlanBuilder 
      */
     constructor(ns, executionPlanBuilder) {
+        this.logger = new Logger(ns, "Scheduler");
+        this.logger.disableNSLogs();
+        this.logger.debug(`constructor()`);
         this.ns = ns;
         this.executionPlanBuilder = executionPlanBuilder;
         this.batchRunners = [];
         this.workers = [];
         this.hackableServers = [];
         this.hackAmount = 0.10;
-        this.logger = new Logger(this.ns, "Scheduler");
-        this.logger.disableNSLogs();
+        this.untargetedServers = ["phantasy"];
     }
 
     async run() {
+        this.logger.debug(`run()`);
+        updateScripts(this.ns);
+
         while (true) {
             this.updateWorkers();
             this.updateHackableServers();
 
-            let untargetedServers = this.hackableServers.filter((s) => this.batchRunners.findIndex((x) => x.target === s) == -1);
-            this.logger.debug(`untargetedServers=${JSON.stringify(untargetedServers, null, 2)}`)
-            if (untargetedServers.length > 0) {
-                let target = untargetedServers.shift();
+            //this.untargetedServers = this.hackableServers.filter((s) => this.batchRunners.findIndex((x) => x.target === s) == -1);
+            this.logger.debug(`untargetedServers=${JSON.stringify(this.untargetedServers, null, 2)}`)
+            if (this.untargetedServers.length > 0) {
+                let target = this.untargetedServers.shift();
                 this.logger.info(`creating new batch runner for ${target}`)
-
-                // if (!await this.initializeServer(target)) {
-                //     this.logger.warn("could not initialize server");
-                //     break;
-                // }
+                await this.initializeServer(target)
 
                 // create example batch job for requirements info
                 let executionPlan = this.executionPlanBuilder.build(this.ns, target, this.hackAmount);
-                //this.logger.debug(`${executionPlan.getDuration()} / (${executionPlan.tasks.length} * ${timing.batchBetweenScriptDelay})`);
                 const maxBatches = Math.floor(executionPlan.getDuration() / (executionPlan.tasks.length * timing.batchBetweenScriptDelay));
 
                 // allocate workers for batches
@@ -55,9 +55,10 @@ export class Scheduler {
                     }
                 }
 
+                this.logger.debug(`reservedWorkers: ${JSON.stringify(reservedWorkers)}`)
                 if (Object.keys(reservedWorkers).length > 0) {
                     // register new batchRunner process
-                    let batchRunnerArgs = [maxBatches, JSON.stringify(reservedWorkers), JSON.stringify(executionPlan.resourceRequirements)];
+                    let batchRunnerArgs = [maxBatches, JSON.stringify(reservedWorkers), this.hackAmount, JSON.stringify(executionPlan.resourceRequirements)];
                     let batchRunner = new NSProcess(this.ns, target, BATCH_RUNNER_SCRIPT);
                     this.batchRunners.push(batchRunner);
 
@@ -87,14 +88,15 @@ export class Scheduler {
 
     //         for (let taskName in workers) {
     //             for (let worker of workers[taskName]){
-
+                    
     //             }
     //         }
     //     }
     // }
 
     updateWorkers() {
-        getAllRootedServers(this.ns).map((s) => {
+        this.logger.debug(`updateWorkers()`);
+        getAllRootedServers(this.ns).filter((x) => x !== "home").map((s) => {
             let maxRam = this.ns.getServerMaxRam(s)
             return {
                 hostname: s,
@@ -110,6 +112,7 @@ export class Scheduler {
     }
 
     updateHackableServers() {
+        this.logger.debug(`updateHackableServers()`);
         getAllHackableServers(this.ns).forEach((s) => {
             getRoot(this.ns, s)
             if (this.hackableServers.findIndex((x) => x.hostname === s) < 0) {
@@ -120,34 +123,37 @@ export class Scheduler {
 
     /** @param {String} target */
     async initializeServer(target) {
+        this.logger.debug(`initializeServer(${target})`);
         const minSecurity = this.ns.getServerMinSecurityLevel(target);
         const maxMoney = this.ns.getServerMaxMoney(target);
-        let hackAmount = maxMoney / (maxMoney - this.getServerMoneyAvailable(target));
+        let hackAmount = maxMoney / (maxMoney - this.ns.getServerMoneyAvailable(target));
         hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
-
-        let success = true;
-        while (this.ns.getServerSecurityLevel(target) > minSecurity && this.ns.getServerMoneyAvailable(target) < maxMoney) {
-            let executionPlan = this.executionPlanBuilder.build(ns, target, this.hackAmount);
+        while ((this.ns.getServerSecurityLevel(target) > minSecurity) || (this.ns.getServerMoneyAvailable(target) < maxMoney)) {
+            this.logger.debug(`${target} security - ${this.ns.getServerSecurityLevel(target)}/${minSecurity}`);
+            this.logger.debug(`${target} money - ${this.ns.getServerMoneyAvailable(target)}/${maxMoney}`);
+            let executionPlan = this.executionPlanBuilder.build(this.ns, target, hackAmount);
             let job = new BatchJob(this.ns, target, hackAmount, executionPlan);
             // use only grow/weaken part of batch
-            job.executionPlan.tasks = job.executionPlan.tasks.filter((x) => x.FinishOrder > 1);
+            let wtf = job.executionPlan.tasks.filter((x) => x.finishOrder > 1);
+            job.executionPlan.tasks = job.executionPlan.tasks.filter((x) => x.finishOrder > 1);
             if (this.assignWorkersToJob(job)){
                 job.run();
                 await job.waitForCompletion();
             }
-            else {
-                success = false;
+            else {  
+                throw Error(`can't initialize target ${target}`)
             }
             this.releaseWorkers(job);
         }
-        return success;
+        this.logger.debug(`${target} security - ${this.ns.getServerSecurityLevel(target)}/${minSecurity}`);
+        this.logger.debug(`${target} money - ${this.ns.getServerMoneyAvailable(target)}/${maxMoney}`);
     }
 
     /** @param {ExecutionPlan} executionPlan */
     reserveWorkers(executionPlan) {
+        this.logger.debug(`reserveWorkers()`);
         let abort = false;
         let reservedWorkers = {};
-        //this.logger.debug(`${JSON.stringify(this.workers)}`)
         for (let task of executionPlan.tasks) {
             let ix = this.workers.findIndex((w) => w.freeRam >= task.resources.Ram);
             if (ix >= 0) {
@@ -179,6 +185,7 @@ export class Scheduler {
 
     /** @param {BatchJob} job */
     assignWorkersToJob(job) {
+        this.logger.debug(`assignWorkersToJob(${job.target})`);
         let success = true;
         for (let task of job.executionPlan.tasks) {
             let ix = this.workers.findIndex((w) => w.freeRam >= task.resources.Ram);
@@ -193,11 +200,11 @@ export class Scheduler {
         }
 
         return success;
-
     }
 
     /** @param {BatchJob} job */
     releaseWorkers(job) {
+        this.logger.debug(`releaseWorkers(${job.target})`);
         job.executionPlan.tasks.forEach((t) => {
             let ix = this.workers.findIndex((w) => w.hostname === t.worker);
             if (ix >= 0 ){

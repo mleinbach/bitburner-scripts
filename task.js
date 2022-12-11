@@ -56,7 +56,7 @@ export class HackTask extends Task {
      * @param {any} resources
      */
     constructor(ns, target, finishOrder, resources) {
-        super(ns, target, hgwScripts.Hack, ns.getHackTime(target), finishOrder, "Hack");
+        super(ns, target, hgwScripts.Hack, ns.getHackTime(target), finishOrder, resources, "Hack");
     }
 
     expectedDuration() {
@@ -71,8 +71,8 @@ export class GrowTask extends Task {
      * @param {Number} finishOrder 
      * @param {any} resources
      */
-    constructor(ns, target, finishOrder) {
-        super(ns, target, hgwScripts.Grow, ns.getGrowTime(target), finishOrder, "Grow")
+    constructor(ns, target, finishOrder, resources) {
+        super(ns, target, hgwScripts.Grow, ns.getGrowTime(target), finishOrder, resources, "Grow")
     }
 
     expectedDuration() {
@@ -87,8 +87,8 @@ export class WeakenTask extends Task {
      * @param {Number} finishOrder 
      * @param {any} resources
      */
-    constructor(ns, target, finishOrder) {
-        super(ns, target, hgwScripts.Weaken, ns.getWeakenTime(target), finishOrder, "Weaken")
+    constructor(ns, target, finishOrder, resources) {
+        super(ns, target, hgwScripts.Weaken, ns.getWeakenTime(target), finishOrder, resources, "Weaken")
     }
 
     expectedDuration() {

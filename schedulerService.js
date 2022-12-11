@@ -1,5 +1,5 @@
 import { Scheduler } from "./scheduler";
-import { MockExecutionPlanBuilder } from "./executionPlan";
+import { MockExecutionPlanBuilder, HWGWExecutionPlanBuilder } from "./executionPlan";
 import { Logger } from "./logger";
 
 /** @param {NS} ns */
@@ -9,11 +9,9 @@ export async function main(ns) {
     if (ns.args[0] === "tail") {
         ns.tail();
     }
-    logger.info("Scheduler running.")
-    await new Scheduler(ns, MockExecutionPlanBuilder).run();
     try {
         logger.info("Scheduler running.")
-        await new Scheduler(ns, MockExecutionPlanBuilder).run();
+        await new Scheduler(ns, HWGWExecutionPlanBuilder).run();
     } catch (e) {
         logger.error(`Unhandled exception occurred:\n${e.stack}`)
     }

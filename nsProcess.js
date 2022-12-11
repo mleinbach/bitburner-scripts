@@ -1,5 +1,11 @@
 import { Logger } from "./logger"
 
+export class ExecError extends Error {
+    constructor(message=null) {
+        super(message)
+    }
+}
+
 export class NSProcess {
     static randomId() {
         return Math.floor(Math.random() * 0xFFFFFFFF).toString(16).padStart(8, '0');
@@ -25,7 +31,7 @@ export class NSProcess {
             this.logger.debug(`${this.script}. ${worker}, ${threads}, ${this.id}, ${this.target} ${JSON.stringify(args)}`)
             this.pid = this.ns.exec(this.script, worker, threads, this.id, this.target, ...args);
             if (this.pid <= 0) {
-                throw new Error(`${this.script}, ${this.worker}`);
+                throw new ExecError(`${this.script}, ${this.worker}`);
             }
             this.startTime = Date.now();
         }

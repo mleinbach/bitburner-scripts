@@ -68,7 +68,7 @@ export function getAllServers(ns) {
 
 export function updateScripts(ns) {
     var servers = getAllRootedServers(ns);
-    var scripts = ["weaken.js", "grow.js", "hack.js", "utilities.js", "constants.js", "config.js"]
+    var scripts = ["weaken.js", "grow.js", "hack.js", "mock.js"]
 
     for (var server of servers) {
         for (var script of scripts) {
