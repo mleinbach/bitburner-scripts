@@ -1,6 +1,7 @@
 import { ExecutionPlan } from "./executionPlan";
 import { Logger } from "./logger";
 import { ExecError } from "./nsProcess";
+import { ports } from "./constants";
 
 export class BatchJob {
     /**
@@ -16,14 +17,14 @@ export class BatchJob {
         this.hackAmount = hackAmount;
         this.executionPlan = executionPlan;
 
-        this.status = {Status: "NOTSTARTED", FinishTimes: []};
+        this.status = {code: "NOTSTARTED", endTimes: []};
     }
 
     run() {
         //this.logger.debug(`run()`);
         this.executionPlan.tasks.sort((x, y) => x.startOrder - y.startOrder);
         try {
-            this.executionPlan.tasks.forEach((x) => x.execute([x.delay]));
+            this.executionPlan.tasks.forEach((x) => x.execute([x.delay, x.finishOrder, this.id, ports.BATCH_STATUS ]));
             this.status.Status = "RUNNING";
         } catch(e) {
             if (e instanceof ExecError){
@@ -36,7 +37,7 @@ export class BatchJob {
     cancel() {
         //this.logger.debug(`cancel()`);
         this.executionPlan.tasks.forEach((x) => x.cancel());
-        this.status = {Status: "CANCELLED"}
+        this.status = {code: "CANCELLED"}
     }
 
     getStatus() {
@@ -49,15 +50,15 @@ export class BatchJob {
             return this.status;
         }
 
-        this.executionPlan.tasks.sort((x, y) => x.finishTime - y.finishTime);
-        var success = this.executionPlan.tasks.every((x, ix) => x.finishOrder == ix);
+        this.executionPlan.tasks.sort((x, y) => x.endTime - y.endTime);
+        let success = this.executionPlan.tasks.every((x, ix) => x.finishOrder == ix);
         if (success) {
-            var finishTimes = this.executionPlan.tasks.map((x) =>  x.finishTime);
-            this.status.Status = "SUCCESS";
-            this.status.FinishTimes = finishTimes;
+            let endTimes = this.executionPlan.tasks.map((x) =>  x.endTime);
+            this.status.code = "SUCCESS";
+            this.status.endTimes = endTimes;
             return this.status;
         }
-        return { Status: "FAILED"}
+        return { code: "FAILED"}
     }
 
     getRunningTasks() {
@@ -74,5 +75,13 @@ export class BatchJob {
 
     getBatchDuration() {
         return this.executionPlan.getDuration();
+    }
+
+    /**
+     * @param {Number} number 
+     * @returns {Task} task 
+     */
+    getTask(id) {
+        return this.executionPlan.tasks.find((x) => x.id === id);
     }
 }
