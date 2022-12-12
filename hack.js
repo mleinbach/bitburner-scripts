@@ -1,8 +1,6 @@
 /** @param {NS} ns */
 export async function main(ns) {
-    let id = ns.args[0]
-    let target = ns.args[1];
-    let delay = ns.args[2];
+    const [id, target, delay, port=null] = ns.args
     await ns.sleep(delay);
     await ns.hack(target);
 }
