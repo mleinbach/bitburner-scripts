@@ -2,6 +2,7 @@ import { timing } from "./config";
 import { ExecutionPlanBuilder } from "./executionPlan";
 import { BatchJob } from "./job";
 import { Logger } from "./logger";
+import { ports, EMPTY_PORT } from "./constants"
 
 export class BatchRunner {
     /**
@@ -30,6 +31,7 @@ export class BatchRunner {
         }
         this.updateInterval = 50; //ms
         this.cycles = 0;
+        this.portHandle = ns.getPortHandle(ports.BATCH_STATUS);
     }
 
     async run() {
@@ -139,6 +141,42 @@ export class BatchRunner {
         for (let task of job.executionPlan.tasks) {
             if (task.worker !== null) {
                 this.workers[task.name].push(task.worker);
+            }
+        }
+    }
+
+    checkBatchStatus() {
+        while(this.portHandle.peek() != EMPTY_PORT) {
+            let portData = this.portHandle.read();
+            let ix = this.batches.findIndex((x) => x.id === portData.batchId)
+            if (ix < 0) {
+                // unknown batch
+                continue;
+            }
+            
+            let batch = this.batches[ix]
+            let task = batch.getTask(portData.id)
+            task.startTime = portData.startTime;
+            task.endTime = portData.endTime;
+
+            let status = batch.getStatus();
+
+            if (status.code === "FAILED") {
+                this.logger.error(`tasks ran out of order`);
+                this.needsReset = true;
+            } else if (status.code === "SUCCESS") {
+                let lastBatchTime = this.lastBatchStatus.endTimes.reduce((x, y) => x - y >= 0 ? x : y);
+                let curBatchTime = status.endTimes.reduce((x, y) => x - y <= 0 ? x : y);
+                if (lastBatchTime < curBatchTime) {
+                    this.lastBatchStatus = batchStatus;
+                    this.releaseWorkers(batch);
+                    this.logger.success(`batch succeeded`);
+                } else {
+                    this.logger.error(`batches ran out of order`);
+                    this.needsReset = true;
+                }
+            } else {
+                runningBatches.push(batch);
             }
         }
     }
