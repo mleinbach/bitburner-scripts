@@ -9,7 +9,6 @@ export async function main(ns) {
     logger.info("started.")
     logger.debug(`main(): args=${ns.args}`)
     try {
-        
         let id = ns.args[0]
         let target = ns.args[1];
         let maxBatches = ns.args[2];

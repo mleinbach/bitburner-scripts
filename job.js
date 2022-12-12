@@ -16,15 +16,15 @@ export class BatchJob {
     /**
      * @param {NS} ns
      * @param {String} target
-     * @param {Number} hackAmount
      * @param {ExecutionPlan} executionPlan
+     * @param {Number} id
      */
-    constructor(ns, target, hackAmount, executionPlan) {
+    constructor(ns, target, executionPlan, id) {
         this.ns = ns;
         this.logger = new Logger(this.ns, "BatchJob");
         this.target = target;
-        this.hackAmount = hackAmount;
         this.executionPlan = executionPlan;
+        this.id = id;
         this.startTime = null;
         this.endTime = null;
 
@@ -32,14 +32,15 @@ export class BatchJob {
     }
 
     run() {
-        //this.logger.debug(`run()`);
+        this.logger.trace(`run()`);
         this.executionPlan.tasks.sort((x, y) => x.startOrder - y.startOrder);
         try {
-            this.executionPlan.tasks.forEach((x) => x.execute([x.delay, x.finishOrder, this.id, ports.BATCH_STATUS]));
+            this.executionPlan.tasks.forEach((x) => x.execute([x.delay, this.id, ports.BATCH_STATUS]));
             this.status = BatchJobStatus.running;
             this.startTime = Date.now();
         } catch (e) {
             if (e instanceof ExecError) {
+                this.logger.error(`Failed to start job:\n${e.stack}`);
                 return false;
             }
         }
@@ -47,14 +48,14 @@ export class BatchJob {
     }
 
     cancel() {
-        //this.logger.debug(`cancel()`);
+        this.logger.trace(`cancel()`);
         this.executionPlan.tasks.forEach((x) => x.cancel());
         this.status = BatchJobStatus.canceled;
         this.endTime = Date.now();
     }
 
     getStatus() {
-        //this.logger.debug(`getStatus()`);
+        this.logger.trace(`getStatus()`);
         if (!(this.status === BatchJobStatus.running && this.getRunningTasks() <= 0)) {
             return this.status;
         }
@@ -67,12 +68,12 @@ export class BatchJob {
     }
 
     getRunningTasks() {
-        //this.logger.debug(`getRunningTasks()`);
+        this.logger.trace(`getRunningTasks()`);
         return this.executionPlan.tasks.filter((x) => x.isRunning()).length;
     }
 
     async waitForCompletion() {
-        //this.logger.debug(`waitForCompletion()`);
+        this.logger.trace(`waitForCompletion()`);
         while (this.getStatus() === BatchJobStatus.running) {
             await this.ns.sleep(1000);
         }

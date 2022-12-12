@@ -6,6 +6,7 @@ class LogLevel {
     static info = "INFO";
     static debug = "DEBUG";
     static success = "SUCCESS";
+    static trace = "TRACE";
 }
 
 export class Logger {
@@ -40,6 +41,10 @@ export class Logger {
         this.#log(msg, LogLevel.debug);
     }
 
+    trace(msg) {
+        this.#log(msg, LogLevel.trace);
+    }
+
     /** @param {NS} ns */
     #log(msg, severity) {
         if (this.#checkVerbosity(severity)) {
@@ -48,15 +53,17 @@ export class Logger {
     }
 
     #checkVerbosity(severity) {
-        if (severity == LogLevel.debug && this.verbosity >= 4) {
+        if (severity === LogLevel.trace && this.verbosity >= 5){
             return true
-        } else if (severity == LogLevel.info && this.verbosity >= 3) {
+        } else if (severity === LogLevel.debug && this.verbosity >= 4) {
             return true
-        } else if (severity == LogLevel.warn && this.verbosity >= 2) {
+        } else if (severity === LogLevel.info && this.verbosity >= 3) {
             return true
-        } else if (severity == LogLevel.success && this.verbosity >= 1) {
+        } else if (severity === LogLevel.warn && this.verbosity >= 2) {
             return true
-        } else if (severity == LogLevel.error && this.verbosity >= 0) {
+        } else if (severity === LogLevel.success && this.verbosity >= 1) {
+            return true
+        } else if (severity === LogLevel.error && this.verbosity >= 0) {
             return true
         } else {
             return false

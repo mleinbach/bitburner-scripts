@@ -28,26 +28,6 @@ export class Task extends NSProcess {
     }
 }
 
-export class MockTask extends Task {
-    /** 
-     * @param {NS} ns
-     * @param {String} target
-     * @param {Number} finishOrder 
-     * @param {any} resources
-     */
-    constructor(ns, duration, finishOrder, resources) {
-        super(ns, "home", "mock.js", duration, finishOrder, resources, "Mock")
-    }
-
-    execute(args) {
-        return super.execute([this.duration, ...args]);
-    }
-
-    expectedDuration() {
-        return this.duration;
-    }
-}
-
 export class HackTask extends Task {
     /** 
      * @param {NS} ns

@@ -1,4 +1,4 @@
-import { HackTask, GrowTask, WeakenTask, MockTask } from "./task"
+import { HackTask, GrowTask, WeakenTask } from "./task"
 import { getHackScriptRam, getGrowScriptRam, getWeakenScriptRam } from "./hgwUtilities";
 import { getGrowThreads, getHackThreads, getWeakenThreads } from "./hgwUtilities";
 import { timing } from "./config";
@@ -22,34 +22,6 @@ export class ExecutionPlanBuilder  {
         throw new Error("Not Implemented");
     }
 }
-
-export class MockExecutionPlanBuilder extends ExecutionPlanBuilder {
-    static build(ns, target, hackAmount) {
-        new Logger(ns, "MockExecutionPlanBuilder").debug("build()");
-        let resourceRequirements = MockExecutionPlanBuilder.getResourceRequirements(ns);
-        let plan = new ExecutionPlan(ns, resourceRequirements);
-        plan.tasks.push(new MockTask(ns, 1000, 0, resourceRequirements.Mock));
-        plan.tasks.push(new MockTask(ns, 5000, 1, resourceRequirements.Mock));
-        plan.tasks.push(new MockTask(ns, 3000, 2, resourceRequirements.Mock));
-        plan.tasks.push(new MockTask(ns, 5000, 3, resourceRequirements.Mock));
-        plan.compile();
-        return plan;
-    }
-
-    /**
-     * @param {NS} ns
-     */
-    static getResourceRequirements(ns) {
-        new Logger(ns, "MockExecutionPlanBuilder").debug("getResourceRequirements()");
-        return {
-            Mock: {
-                Threads: 1,
-                Ram: ns.getScriptRam("mock.js")
-            }
-        };
-    }
-}
-
 
 export class HWGWExecutionPlanBuilder extends ExecutionPlanBuilder {
     static build(ns, target, hackAmount) {
@@ -96,14 +68,14 @@ export class ExecutionPlan {
     /** @param {NS} ns */
     constructor(ns, resourceRequirements) {
         this.logger = new Logger(ns, "ExecutionPlan");
-        this.logger.debug("constructor()");
+        this.logger.trace("constructor()");
         this.ns = ns;
         this.resourceRequirements = resourceRequirements;
         this.tasks = [];
     }
 
     compile() {
-        this.logger.debug("compile()");
+        this.logger.trace("compile()");
         var longestTask = this.tasks.reduce((x, y) => {
             if (y.duration > x.duration) {
                 return y
@@ -141,7 +113,7 @@ export class ExecutionPlan {
 
     /** @returns {Number} */
     getDuration() {
-        this.logger.debug("getDuration()");
+        this.logger.trace("getDuration()");
         return this.tasks.map((x) => x.totalDuration()).reduce((x, y) => (x - y) > 0 ? x : y);
     }
 }
