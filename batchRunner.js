@@ -1,6 +1,6 @@
 import { timing } from "./config";
 import { ExecutionPlanBuilder } from "./executionPlan";
-import { BatchJob } from "./job";
+import { BatchJob, BatchJobStatus } from "./job";
 import { Logger } from "./logger";
 import { ports, EMPTY_PORT } from "./constants"
 
@@ -147,36 +147,48 @@ export class BatchRunner {
 
     checkBatchStatus() {
         while(this.portHandle.peek() != EMPTY_PORT) {
+            // get task finished data from port
             let portData = this.portHandle.read();
+
+            // find associated batch
             let ix = this.batches.findIndex((x) => x.id === portData.batchId)
             if (ix < 0) {
-                // unknown batch
+                // unknown batch, throw it away
                 continue;
             }
             
+            // update the task
             let batch = this.batches[ix]
             let task = batch.getTask(portData.id)
             task.startTime = portData.startTime;
             task.endTime = portData.endTime;
-
+            
+            // evaluate batch status
+            // We don't actually know the order in which the batch that is associated with the task port data executed.
+            // Despite that, the following logic should evaluate batches more or less in order as long as the update interval is
+            // less than the task delay time.
+            // We will be pulling from this port faster than the tasks will be pushing, therefore we will evaluate tasks in order.
+            // As long as the task timing logic is correct, it should follow that batches will be evaluated in order.
             let status = batch.getStatus();
-
-            if (status.code === "FAILED") {
+            if (status === BatchJobStatus.failed) {
                 this.logger.error(`tasks ran out of order`);
                 this.needsReset = true;
-            } else if (status.code === "SUCCESS") {
-                let lastBatchTime = this.lastBatchStatus.endTimes.reduce((x, y) => x - y >= 0 ? x : y);
-                let curBatchTime = status.endTimes.reduce((x, y) => x - y <= 0 ? x : y);
-                if (lastBatchTime < curBatchTime) {
-                    this.lastBatchStatus = batchStatus;
-                    this.releaseWorkers(batch);
+            } else if (status === BatchJobStatus.success) {
+                let firstTaskEndTime = batch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y <= 0 ? x : y);
+                if (this.lastBatchEndTime < firstTaskEndTime) {
                     this.logger.success(`batch succeeded`);
+                    this.lastBatchEndTime = batch.endTime;
+                    this.releaseWorkers(batch);
                 } else {
                     this.logger.error(`batches ran out of order`);
                     this.needsReset = true;
                 }
             } else {
                 runningBatches.push(batch);
+            }
+
+            if (this.needsReset) {
+                break;
             }
         }
     }
