@@ -23,7 +23,7 @@ export class NSProcess {
         this.logger.disableNSLogs();
         this.pid = null;
         this.startTime = null;
-        this.finishTime = null;
+        this.endTime = null;
     }
 
     execute(worker, threads=1, args=[]) {
@@ -41,7 +41,7 @@ export class NSProcess {
     cancel() {
         if (this.pid !== null) {
             this.ns.kill(this.pid);
-            this.finishTime = Date.now();
+            this.endTime = Date.now();
         }
     }
 
@@ -49,8 +49,8 @@ export class NSProcess {
         if(this.pid > 0 && this.ns.isRunning(this.pid)){
             return true;
         }
-        if (this.finishTime === null) {
-            this.finishTime = Date.now();
+        if (this.endTime === null) {
+            this.endTime = Date.now();
         }
         return false;
     }
