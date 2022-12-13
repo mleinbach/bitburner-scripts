@@ -39,10 +39,8 @@ export class BatchJob {
             this.status = BatchJobStatus.running;
             this.startTime = Date.now();
         } catch (e) {
-            if (e instanceof ExecError) {
-                this.logger.error(`Failed to start job:\n${e.stack}`);
-                return false;
-            }
+            this.logger.error(`Failed to start job:\n${e.stack}`);
+            return false;
         }
         return true;
     }

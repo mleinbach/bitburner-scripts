@@ -49,8 +49,12 @@ export class BatchRunner {
     }
 
     /** @returns {ExecutionPlan} execution plan based on target server current attributes */
-    getExecutionPlan() {
-        return this.executionPlanBuilder.build(this.ns, this.target, this.hackAmount);
+    getExecutionPlan(hackAmount=null) {
+        this.logger.trace(`getExecutionPlan() - [${hackAmount}]`);
+        if (hackAmount === null) {
+            hackAmount = this.hackAmount;
+        }
+        return this.executionPlanBuilder.build(this.ns, this.target, hackAmount);
     }
 
     initializeTarget() {

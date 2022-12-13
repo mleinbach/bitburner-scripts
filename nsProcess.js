@@ -29,7 +29,9 @@ export class NSProcess {
     execute(worker, threads=1, args=[]) {
         if (this.pid === null){
             this.logger.debug(`${this.script}. ${worker}, ${threads}, ${this.id}, ${this.target} ${JSON.stringify(args)}`)
+            //this.ns.enableLog("exec");
             this.pid = this.ns.exec(this.script, worker, threads, this.id, this.target, ...args);
+            //this.ns.disableLog("exec");
             if (this.pid <= 0) {
                 throw new ExecError(`${this.script}, ${this.worker}`);
             }

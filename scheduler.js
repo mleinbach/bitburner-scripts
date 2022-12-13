@@ -68,7 +68,7 @@ export class Scheduler {
                 freeRam: maxRam
             }
         }).forEach((s) => {
-            if (this.workers.findIndex((x) => x.hostname === s) < 0) {
+            if (this.workers.findIndex((x) => x.hostname === s.hostname) < 0) {
                 this.workers.push(s);
             }
         })
@@ -78,7 +78,7 @@ export class Scheduler {
         this.logger.trace(`updateHackableServers()`);
         getAllHackableServers(this.ns).forEach((s) => {
             getRoot(this.ns, s)
-            if (this.hackableServers.findIndex((x) => x.hostname === s) < 0) {
+            if (this.hackableServers.findIndex((x) => x === s) < 0) {
                 this.hackableServers.push(s);
             }
         })
@@ -156,12 +156,14 @@ export class Scheduler {
             }
             let taskSlots = reservedWorkers[task.name];
 
-            let ix = this.workers.findIndex((w) => w.freeRam >= task.resources.Ram);
+            let ix = this.workers.findIndex((w) => w.freeRam > task.resources.Ram);
             if (ix < 0) {
                 abort = true;
                 break;
             }
             let worker = this.workers[ix];
+            this.logger.info(`worker = ${worker.hostname}, ${worker.freeRam}`);
+            this.logger.info(`task = ${task.name}, ${task.resources.Ram}`);
             worker.freeRam -= task.resources.Ram;
             if (!taskSlots.hasOwnProperty(worker.hostname)) {
                 taskSlots[worker.hostname] = {slots:0, slotRam:task.resources.Ram};
@@ -196,7 +198,13 @@ export class Scheduler {
 
             // create a BatchRunner with maxBatches=1 for initialization purposes
             let batchRunner = new this.batchRunnerType(this.ns, target, 1, {}, this.hackAmount);
-            let executionPlan = batchRunner.getExecutionPlan();
+
+            let maxMoney = this.ns.getServerMoneyAvailable(target);
+            let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(target));
+            hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
+
+            let executionPlan = batchRunner.getExecutionPlan(hackAmount);
+            executionPlan.tasks = executionPlan.tasks.filter((t) => t.finishOrder > 1);
             let workerSlots = this.reserveWorkers(executionPlan);
             if (Object.keys(workerSlots).length <= 0) {
                 this.logger.warn(`Could not assign workers to BatchRunner[${target}]`);
