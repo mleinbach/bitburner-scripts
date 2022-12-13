@@ -29,8 +29,10 @@ export class BatchRunner {
         this.initializing = false;
         this.now = Date.now();
         this.timeSinceLastBatch = 0;
-        this.lastBatchEndTime = 0;
+        this.lastBatch = null;
         this.nextBatchId = 0;
+        this.succeededBatches = 0;
+        this.failedBatches = 0;
     }
 
     reset() {
@@ -53,11 +55,16 @@ export class BatchRunner {
 
     initializeTarget() {
         this.initializing = true;
+        if (!this.checkTargetInitilization()) {
+            return;
+        }
 
-        let hackAmount = maxMoney / (maxMoney - this.ns.getServerMoneyAvailable(this.target));
+        let maxMoney = this.ns.getServerMoneyAvailable(this.target);
+        let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(this.target));
         hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
 
         let executionPlan = this.executionPlanBuilder.build(this.ns, this.target, hackAmount);
+        executionPlan.tasks = executionPlan.tasks.filter((t) => t.finishOrder > 1);
         let job = new BatchJob(this.ns, this.target, executionPlan, -1);
 
         let success = this.assignWorkersToJob(job);
@@ -69,6 +76,7 @@ export class BatchRunner {
         } else {
             throw new Error(`failed to initilialize target=${this.target}`);
         }
+        job.executionPlan.tasks.forEach((t) => this.logger.info(`${t.name} ${t.finishOrder} ${t.pid}`));
     }
 
     startNewBatch() {
@@ -157,16 +165,25 @@ export class BatchRunner {
             this.logger.error(`tasks ran out of order`);
             this.needsReset = true;
         } else if (status === BatchJobStatus.success) {
-            let firstTaskEndTime = batch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y <= 0 ? x : y);
-            if (this.lastBatchEndTime < firstTaskEndTime) {
-                this.logger.success(`batch ${batch.id} succeeded`);
-                this.lastBatchEndTime = batch.endTime;
-                this.releaseWorkers(batch);
-                this.checkTargetInitilization();
+            if (this.lastBatch === null) {
+                this.lastBatch = batch;
+                this.failedBatches++;
             } else {
-                this.logger.error(`batches ran out of order: lastBatchEndTime=${this.lastBatchEndTime}, firstTaskEndTime=${firstTaskEndTime}`);
-                this.needsReset = true;
+                let lastBatchEndTime = this.lastBatch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y >= 0 ? x : y);
+                let firstTaskEndTime = batch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y <= 0 ? x : y);
+                if (lastBatchEndTime < firstTaskEndTime) {
+                    this.logger.success(`batch ${batch.id} succeeded`);
+                    this.lastBatch = batch;
+                    this.releaseWorkers(batch);
+                    this.checkTargetInitilization();
+                    this.succeededBatches++;
+                } else {
+                    this.logger.error(`batches ran out of order: lastBatchId=${this.lastBatch.id} lastBatchEndTime=${lastBatchEndTime}, currentBatchId=${batch.id} firstTaskEndTime=${firstTaskEndTime}`);
+                    this.needsReset = true;
+                    this.failedBatches++;
+                }
             }
+
         }
     }
 
@@ -174,8 +191,9 @@ export class BatchRunner {
         if (this.initializing
             && (this.ns.getServerMaxMoney(this.target) <= this.ns.getServerMoneyAvailable(this.target)
                 || this.ns.getServerMinSecurityLevel(this.target) >= this.ns.getServerSecurityLevel(this.target)
-        )) {
+            )) {
             this.initializing = false;
         }
+        return this.initializing;
     }
 }

@@ -10,7 +10,7 @@ export class Scheduler {
      * @param {NS} ns
      * @param {typeof BatchRunner} batchRunnerType
      */
-    constructor(ns, batchRunnerType) {
+    constructor(ns, batchRunnerType, enableStats) {
         this.logger = new Logger(ns, "Scheduler");
         this.logger.disableNSLogs();
         this.logger.trace(`new Scheduler()`);
@@ -30,19 +30,32 @@ export class Scheduler {
         this.batchRunners = [];
         /** @type {BatchRunner[]} */
         this.initializingRunners = [];
+        this.enableStats = enableStats;
+        this.statsInterval = 5000;
     }
 
     async run() {
         this.logger.trace(`run()`);
-        updateScripts(this.ns);
-        this.portHandle.clear();
+        this.initialize();
+
         while (true) {
             this.updateWorkers();
             this.updateHackableServers();
             this.updateBatchRunners();
             this.startNewBatchRunner();
+
+            if(this.enableStats && (Date.now() % this.statsInterval) <= 100) {
+                this.displayStatistics();
+            }
             await this.ns.sleep(this.updateInterval);
         }
+    }
+
+    initialize() {
+        updateScripts(this.ns);
+        this.updateWorkers();
+        this.workers.forEach((w) => this.ns.killall(w.hostname, true));
+        this.portHandle.clear();
     }
 
     updateWorkers() {
@@ -82,6 +95,7 @@ export class Scheduler {
             let ix = this.batchRunners.findIndex((x) => x.target === portData.target);
             if (ix < 0) {
                 this.logger.warn(`found no batcher associated with target=${portData.target}`);
+                continue;
             }
 
             this.batchRunners[ix].updateBatchStatus(portData);
@@ -192,6 +206,22 @@ export class Scheduler {
             this.initializingRunners.push(batchRunner);
             this.batchRunners.push(batchRunner);
             batchRunner.initializeTarget();
+        }
+    }
+
+    displayStatistics() {
+        this.ns.clearLog();
+        const [dollarsPerSec, dollarsSinceAug] = this.ns.getTotalScriptIncome();
+        const expGain = this.ns.getTotalScriptExpGain();
+        
+        this.logger.info(`Income ($/s): ${dollarsPerSec}`);
+        this.logger.info(`Exp Gain Rate: ${expGain}`);
+        this.logger.info(`Batch Runners:`)
+        for(let runner of this.batchRunners){
+            this.logger.info(`\t-Target: ${runner.target}`)
+            this.logger.info(`\t\t-Running: ${runner.batches.length}`)
+            this.logger.info(`\t\t-Succeeded: ${runner.succeededBatches}`);
+            this.logger.info(`\t\t-Failed: ${runner.failedBatches}`)
         }
     }
 }

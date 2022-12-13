@@ -25,7 +25,7 @@ export class ExecutionPlanBuilder  {
 
 export class HWGWExecutionPlanBuilder extends ExecutionPlanBuilder {
     static build(ns, target, hackAmount) {
-        new Logger(ns, "HWGWExcutionPlanBuilder").debug(`build(${ns}, ${target}, ${hackAmount})`);
+        new Logger(ns, "HWGWExcutionPlanBuilder").trace(`build(${ns}, ${target}, ${hackAmount})`);
         let resourceRequirements = HWGWExecutionPlanBuilder.getResourceRequirements(ns, target, hackAmount);
         let plan = new ExecutionPlan(ns, resourceRequirements);
         plan.tasks.push(new HackTask(ns, target, 0, resourceRequirements.Hack));
@@ -42,7 +42,7 @@ export class HWGWExecutionPlanBuilder extends ExecutionPlanBuilder {
      * @returns {any}
      */
     static getResourceRequirements(ns, target, hackAmount) {
-        new Logger(ns, "HWGWExcutionPlanBuilder").debug(`getResourceRequirements(${ns}, ${target}, ${hackAmount})`);
+        new Logger(ns, "HWGWExcutionPlanBuilder").trace(`getResourceRequirements(${ns}, ${target}, ${hackAmount})`);
         const hackThreads = getHackThreads(ns, target, hackAmount);
         const growThreads = getGrowThreads(ns, target, hackAmount);
         const weakenThreads = getWeakenThreads(ns, target, hackAmount);
