@@ -122,27 +122,17 @@ export class BatchRunner {
         this.logger.trace("assignWorkersToJob()");
         let success = true;
         for (let task of job.executionPlan.tasks) {
-            let workers = {
-                "Task": {
-                    "Worker1": 1,
-                    "Worker2": 2
+            for (const w in this.workers[task.name]) {
+                if (this.workers[task.name][w] > 0) {
+                    task.worker = w;
+                    this.workers[task.name][w]--;
                 }
             }
 
-            for (const w in workers.Task) {
-                if (workers.Task[w] >=)
-            }
-
-            Object.keys(workers.Task).filter((x) =>)
-
-            workers.Task
-
-
-            if (this.workers[task.name].length == 0) {
+            if (task.worker === null) {
                 success = false;
                 break;
             }
-            task.worker = this.workers[task.name].shift();
         }
         return success;
     }
@@ -151,9 +141,8 @@ export class BatchRunner {
     releaseWorkers(job) {
         this.logger.trace("releaseWorkers()");
         for (let task of job.executionPlan.tasks) {
-            if (task.worker !== null) {
-                this.workers[task.name].push(task.worker);
-            }
+            this.workers[task.name][task.worker]++;
+            task.worker = null;
         }
     }
 
