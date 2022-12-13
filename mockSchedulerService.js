@@ -35,7 +35,7 @@ export async function main(ns) {
 class MockScheduler extends Scheduler {
     constructor(...args) {
         super(...args);
-        this.untargetedServers = ["n00dles", "iron-gym", "phantasy"];
+        this.untargetedServers = ["n00dles"];
     }
 }
 

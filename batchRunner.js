@@ -21,7 +21,7 @@ export class BatchRunner {
         this.maxBatches = maxBatches;
         this.workerSlots = workers;
         /** @type {typeof ExecutionPlanBuilder} */
-        this.executionPlanBuilder = HWGWExecutionPlanBuilder;
+        this.executionPlanBuilder = new HWGWExecutionPlanBuilder(this.ns, this.target, hackAmount);
         this.hackAmount = hackAmount;
         /** @type {BatchJob[]} */
         this.batches = [];
@@ -49,12 +49,9 @@ export class BatchRunner {
     }
 
     /** @returns {ExecutionPlan} execution plan based on target server current attributes */
-    getExecutionPlan(hackAmount=null) {
-        this.logger.trace(`getExecutionPlan() - [${hackAmount}]`);
-        if (hackAmount === null) {
-            hackAmount = this.hackAmount;
-        }
-        return this.executionPlanBuilder.build(this.ns, this.target, hackAmount);
+    getExecutionPlan() {
+        this.logger.trace(`getExecutionPlan()`);
+        return this.executionPlanBuilder.build();
     }
 
     initializeTarget() {
@@ -66,8 +63,9 @@ export class BatchRunner {
         let maxMoney = this.ns.getServerMoneyAvailable(this.target);
         let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(this.target));
         hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
+        this.executionPlanBuilder = new HWGWExecutionPlanBuilder(this.ns, this.target, hackAmount);
 
-        let executionPlan = this.executionPlanBuilder.build(this.ns, this.target, hackAmount);
+        let executionPlan = this.getExecutionPlan();
         executionPlan.tasks = executionPlan.tasks.filter((t) => t.finishOrder > 1);
         let job = new BatchJob(this.ns, this.target, executionPlan, -1);
 
@@ -132,6 +130,7 @@ export class BatchRunner {
                 break;
             }
         }
+
         return success;
     }
 
@@ -168,6 +167,7 @@ export class BatchRunner {
         if (status === BatchJobStatus.failed) {
             this.logger.error(`tasks ran out of order`);
             this.needsReset = true;
+            this.failedBatches++;
         } else if (status === BatchJobStatus.success) {
             if (this.lastBatch === null) {
                 this.lastBatch = batch;
@@ -180,7 +180,6 @@ export class BatchRunner {
                     this.lastBatch = batch;
                     this.releaseWorkers(batch);
                     this.checkTargetInitilization();
-                    this.succeededBatches++;
                 } else {
                     this.logger.error(`batches ran out of order: lastBatchId=${this.lastBatch.id} lastBatchEndTime=${lastBatchEndTime}, currentBatchId=${batch.id} firstTaskEndTime=${firstTaskEndTime}`);
                     this.needsReset = true;
@@ -197,6 +196,7 @@ export class BatchRunner {
                 || this.ns.getServerMinSecurityLevel(this.target) >= this.ns.getServerSecurityLevel(this.target)
             )) {
             this.initializing = false;
+            this.executionPlanBuilder = new HWGWExecutionPlanBuilder(this.ns, this.target, this.hackAmount);
         }
         return this.initializing;
     }

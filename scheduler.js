@@ -1,5 +1,5 @@
 import { getAllHackableServers, getAllRootedServers, getRoot, updateScripts } from "./utilities";
-import { ExecutionPlan } from "./executionPlan";
+import { HWGWExecutionPlanBuilder, ExecutionPlan } from "./executionPlan";
 import { Logger } from "./logger";
 import { BatchRunner } from "./batchRunner";
 import { timing } from "./config";
@@ -127,6 +127,7 @@ export class Scheduler {
                     }
                 }
             }
+            this.logger.info(JSON.stringify(taskSlots, null, 2))
             runner.workerSlots = taskSlots;
             runner.maxBatches = maxBatches;
         }
@@ -141,20 +142,18 @@ export class Scheduler {
                 runner.startNewBatch();
             }
         }
-
-        let runningBatches = this.batchRunners.map((r) => r.batches.length).reduce((p, c) => p + c, 0);
     }
 
     /** @param {ExecutionPlan} executionPlan */
     reserveWorkers(executionPlan) {
         this.logger.trace(`reserveWorkers()`);
         let abort = false;
-        let reservedWorkers = {};
+        let taskSlots = {};
         for (let task of executionPlan.tasks) {
-            if (!reservedWorkers.hasOwnProperty(task.name)) {
-                reservedWorkers[task.name] = {};
+            if (!taskSlots.hasOwnProperty(task.name)) {
+                taskSlots[task.name] = {};
             }
-            let taskSlots = reservedWorkers[task.name];
+            let workerSlots = taskSlots[task.name];
 
             let ix = this.workers.findIndex((w) => w.freeRam > task.resources.Ram);
             if (ix < 0) {
@@ -162,20 +161,18 @@ export class Scheduler {
                 break;
             }
             let worker = this.workers[ix];
-            this.logger.info(`worker = ${worker.hostname}, ${worker.freeRam}`);
-            this.logger.info(`task = ${task.name}, ${task.resources.Ram}`);
             worker.freeRam -= task.resources.Ram;
-            if (!taskSlots.hasOwnProperty(worker.hostname)) {
-                taskSlots[worker.hostname] = {slots:0, slotRam:task.resources.Ram};
+            if (!workerSlots.hasOwnProperty(worker.hostname)) {
+                workerSlots[worker.hostname] = {slots:0, slotRam:task.resources.Ram};
             }
-            taskSlots[worker.hostname].slots++;
+            workerSlots[worker.hostname].slots++;
         }
 
         if (abort) {
-            this.releaseWorkers(reservedWorkers);
-            reservedWorkers = {};
+            this.releaseWorkers(taskSlots);
+            taskSlots = {};
         }
-        return reservedWorkers;
+        return taskSlots;
     }
 
     releaseWorkers(workerSlots) {
@@ -203,7 +200,7 @@ export class Scheduler {
             let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(target));
             hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
 
-            let executionPlan = batchRunner.getExecutionPlan(hackAmount);
+            let executionPlan = new HWGWExecutionPlanBuilder(this.ns, target, hackAmount).build();
             executionPlan.tasks = executionPlan.tasks.filter((t) => t.finishOrder > 1);
             let workerSlots = this.reserveWorkers(executionPlan);
             if (Object.keys(workerSlots).length <= 0) {
