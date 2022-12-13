@@ -12,7 +12,7 @@ export class BatchRunner {
      * @param {any} workers
      * @param {typeof ExecutionPlanBuilder} executionPlanBuilder
      */
-    constructor(ns, target, maxBatches, workers, executionPlanBuilder) {
+    constructor(ns, target, maxBatches, workers, hackAmount, executionPlanBuilder) {
         this.logger = new Logger(ns, "BatchRunner");
         this.logger.disableNSLogs();
         this.logger.trace("constructor()")
@@ -109,11 +109,35 @@ export class BatchRunner {
     }
     
 
-    /** @param {BatchJob} job */
+
+    /** 
+     * @param {BatchJob} job 
+     * {
+     *  "Task": {
+     *      "Worker": 1
+     *   }
+     * }
+    */
     assignWorkersToJob(job) {
         this.logger.trace("assignWorkersToJob()");
         let success = true;
         for (let task of job.executionPlan.tasks) {
+            let workers = {
+                "Task": {
+                    "Worker1": 1,
+                    "Worker2": 2
+                }
+            }
+
+            for (const w in workers.Task) {
+                if (workers.Task[w] >=)
+            }
+
+            Object.keys(workers.Task).filter((x) =>)
+
+            workers.Task
+
+
             if (this.workers[task.name].length == 0) {
                 success = false;
                 break;
@@ -144,7 +168,7 @@ export class BatchRunner {
             let ix = this.batches.findIndex((x) => x.id === portData.batchId)
             this.logger.debug(`ix=${ix}`)
             if (ix < 0) {
-                // unknown batch, throw it away
+                this.logger.warn(`recieved task data for unknown batch`);
                 continue;
             }
 
