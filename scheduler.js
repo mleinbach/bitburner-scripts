@@ -1,108 +1,58 @@
 import { getAllHackableServers, getAllRootedServers, getRoot, updateScripts } from "./utilities";
-import { BatchJob } from "./job";
-import { timing } from "./config";
-import { NSProcess } from "./nsProcess";
-import { ExecutionPlan, ExecutionPlanBuilder } from "./executionPlan";
+import { ExecutionPlan } from "./executionPlan";
 import { Logger } from "./logger";
-import { BATCH_RUNNER_SCRIPT } from "./constants";
+import { BatchRunner } from "./batchRunner";
+import { timing } from "./config";
+import { EMPTY_PORT, ports } from "./constants";
 
 export class Scheduler {
     /** 
      * @param {NS} ns
-     * @param {typeof ExecutionPlanBuilder} executionPlanBuilder 
+     * @param {typeof BatchRunner} batchRunnerType
      */
-    constructor(ns, executionPlanBuilder) {
+    constructor(ns, batchRunnerType) {
         this.logger = new Logger(ns, "Scheduler");
         this.logger.disableNSLogs();
-        this.logger.debug(`constructor()`);
+        this.logger.trace(`new Scheduler()`);
         this.ns = ns;
-        this.executionPlanBuilder = executionPlanBuilder;
-        this.batchRunners = [];
+        this.batchRunnerType = batchRunnerType;
+        this.portHandle = ns.getPortHandle(ports.BATCH_STATUS);
         this.workers = [];
+        /** @type {String[]} */
         this.hackableServers = [];
+        /** @type {Number} */
         this.hackAmount = 0.10;
+        /** @type {String[]} */
         this.untargetedServers = ["phantasy"];
+        /** @type {Number} */
+        this.updateInterval = 50 //ms;
+        /** @type {BatchRunner[]} */
+        this.batchRunners = [];
+        /** @type {BatchRunner[]} */
+        this.initializingRunners = [];
     }
 
     async run() {
-        this.logger.debug(`run()`);
+        this.logger.trace(`run()`);
         updateScripts(this.ns);
-
+        this.portHandle.clear();
         while (true) {
             this.updateWorkers();
             this.updateHackableServers();
-
-            //this.untargetedServers = this.hackableServers.filter((s) => this.batchRunners.findIndex((x) => x.target === s) == -1);
-            this.logger.debug(`untargetedServers=${JSON.stringify(this.untargetedServers, null, 2)}`)
-            if (this.untargetedServers.length > 0) {
-                let target = this.untargetedServers.shift();
-                this.logger.info(`creating new batch runner for ${target}`)
-                await this.initializeServer(target)
-
-                // create example batch job for requirements info
-                let executionPlan = this.executionPlanBuilder.build(this.ns, target, this.hackAmount);
-                const maxBatches = Math.floor(executionPlan.getDuration() / (executionPlan.tasks.length * timing.batchBetweenScriptDelay));
-
-                // allocate workers for batches
-                let reservedWorkers = {};
-                for (let i = 0; i < maxBatches; i++) {
-                    let jobWorkers = this.reserveWorkers(executionPlan);
-                    for (let key in jobWorkers) {
-                        if (!reservedWorkers.hasOwnProperty(key)) {
-                            reservedWorkers[key] = [];
-                        }
-                        reservedWorkers[key].push(...jobWorkers[key])
-                    }
-                }
-
-                this.logger.debug(`reservedWorkers: ${JSON.stringify(reservedWorkers)}`)
-                if (Object.keys(reservedWorkers).length > 0) {
-                    // register new batchRunner process
-                    let batchRunnerArgs = [maxBatches, JSON.stringify(reservedWorkers), this.hackAmount, JSON.stringify(executionPlan.resourceRequirements)];
-                    let batchRunner = new NSProcess(this.ns, target, BATCH_RUNNER_SCRIPT);
-                    this.batchRunners.push(batchRunner);
-
-                    // launch batchRunner
-                    this.logger.info(`starting new batch runner for ${target}`)
-                    batchRunner.execute("home", 1, batchRunnerArgs);
-                } else {
-                    this.logger.warn("could not assign workers to batch job")
-                }
-            }
-            await this.ns.sleep(10000);
+            this.updateBatchRunners();
+            this.startNewBatchRunner();
+            await this.ns.sleep(this.updateInterval);
         }
     }
 
-    // discoverBatchRunners() {
-    //     let processes = this.ns.ps("home").filter((p) => p.filename === BATCH_RUNNER_SCRIPT);
-    //     for (let pi of processes) {
-    //         let id = ns.args[0]
-    //         let target = ns.args[1];
-    //         let maxBatches = ns.args[2];
-    //         let workers = JSON.parse(ns.args[3]);
-    //         let hackAmount = ns.args[4];
-    //         let resourceRequirements = JSON.parse(ns.args[5]);
-    //         let batchRunner = new NSProcess(this.ns, target, BATCH_RUNNER_SCRIPT);
-    //         batchRunner.id = id;
-    //         batchRunner.pid = pi.pid;
-
-    //         for (let taskName in workers) {
-    //             for (let worker of workers[taskName]){
-                    
-    //             }
-    //         }
-    //     }
-    // }
-
     updateWorkers() {
-        this.logger.debug(`updateWorkers()`);
+        this.logger.trace(`updateWorkers()`);
         getAllRootedServers(this.ns).filter((x) => x !== "home").map((s) => {
             let maxRam = this.ns.getServerMaxRam(s)
             return {
                 hostname: s,
                 maxRam: maxRam,
-                freeRam: maxRam,
-                reservedRam: 0
+                freeRam: maxRam
             }
         }).forEach((s) => {
             if (this.workers.findIndex((x) => x.hostname === s) < 0) {
@@ -112,7 +62,7 @@ export class Scheduler {
     }
 
     updateHackableServers() {
-        this.logger.debug(`updateHackableServers()`);
+        this.logger.trace(`updateHackableServers()`);
         getAllHackableServers(this.ns).forEach((s) => {
             getRoot(this.ns, s)
             if (this.hackableServers.findIndex((x) => x.hostname === s) < 0) {
@@ -121,96 +71,127 @@ export class Scheduler {
         })
     }
 
-    /** @param {String} target */
-    async initializeServer(target) {
-        this.logger.debug(`initializeServer(${target})`);
-        const minSecurity = this.ns.getServerMinSecurityLevel(target);
-        const maxMoney = this.ns.getServerMaxMoney(target);
-        let hackAmount = maxMoney / (maxMoney - this.ns.getServerMoneyAvailable(target));
-        hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
-        while ((this.ns.getServerSecurityLevel(target) > minSecurity) || (this.ns.getServerMoneyAvailable(target) < maxMoney)) {
-            this.logger.debug(`${target} security - ${this.ns.getServerSecurityLevel(target)}/${minSecurity}`);
-            this.logger.debug(`${target} money - ${this.ns.getServerMoneyAvailable(target)}/${maxMoney}`);
-            let executionPlan = this.executionPlanBuilder.build(this.ns, target, hackAmount);
-            let job = new BatchJob(this.ns, target, hackAmount, executionPlan);
-            // use only grow/weaken part of batch
+    updateBatchRunners() {
+        this.logger.trace("updateBatchRunners()");
+        while (this.portHandle.peek() !== EMPTY_PORT) {
+            // get task finished data from port
+            let portData = JSON.parse(this.portHandle.read());
+            this.logger.debug(`portData=${JSON.stringify(portData)}`)
 
-            job.executionPlan.tasks = job.executionPlan.tasks.filter((x) => x.finishOrder > 1);
-            if (this.assignWorkersToJob(job)){
-                job.run();
-                await job.waitForCompletion();
+            // find associated batch
+            let ix = this.batchRunners.findIndex((x) => x.target === portData.target);
+            if (ix < 0) {
+                this.logger.warn(`found no batcher associated with target=${portData.target}`);
             }
-            else {  
-                throw Error(`can't initialize target ${target}`)
-            }
-            this.releaseWorkers(job);
+
+            this.batchRunners[ix].updateBatchStatus(portData);
         }
-        this.logger.debug(`${target} security - ${this.ns.getServerSecurityLevel(target)}/${minSecurity}`);
-        this.logger.debug(`${target} money - ${this.ns.getServerMoneyAvailable(target)}/${maxMoney}`);
+
+        
+        for (let runner of this.initializingRunners) {
+            if (runner.initializing) {
+                continue;
+            }
+
+            this.releaseWorkers(runner.workerSlots);
+            let executionPlan = runner.getExecutionPlan();
+            let maxBatches = Math.floor(executionPlan.getDuration() / (4 * timing.batchTaskDelay));
+            let taskSlots = {}
+            for (let i = 0; i < maxBatches; i++) {
+                var newTaskSlots = this.reserveWorkers(executionPlan)
+                for (let taskName in newTaskSlots) {
+                    if (!taskSlots.hasOwnProperty(taskName)){
+                        taskSlots[taskName] = {};
+                    }
+                    let newWorkerSlots = newTaskSlots[taskName];
+                    for (let hostname in newWorkerSlots) {
+                        if (!taskSlots[taskName].hasOwnProperty(hostname)){
+                            taskSlots[taskName][hostname] = {slots:0, slotRam:0};
+                        }
+                        taskSlots[taskName][hostname].slots += newWorkerSlots[hostname].slots;
+                        taskSlots[taskName][hostname].slotRam += newWorkerSlots[hostname].slotRam;
+                    }
+                }
+            }
+            runner.workerSlots = taskSlots;
+            runner.maxBatches = maxBatches;
+        }
+
+        this.initializingRunners = this.initializingRunners.filter((r) => r.initializing);
+
+        for (let runner of this.batchRunners) {
+            if (runner.needsReset) {
+                runner.reset();
+            } else {
+                runner.updateBatches();
+                runner.startNewBatch();
+            }
+        }
+
+        let runningBatches = this.batchRunners.map((r) => r.batches.length).reduce((p, c) => p + c, 0);
     }
 
     /** @param {ExecutionPlan} executionPlan */
     reserveWorkers(executionPlan) {
-        this.logger.debug(`reserveWorkers()`);
+        this.logger.trace(`reserveWorkers()`);
         let abort = false;
         let reservedWorkers = {};
         for (let task of executionPlan.tasks) {
+            if (!reservedWorkers.hasOwnProperty(task.name)) {
+                reservedWorkers[task.name] = {};
+            }
+            let taskSlots = reservedWorkers[task.name];
+
             let ix = this.workers.findIndex((w) => w.freeRam >= task.resources.Ram);
-            if (ix >= 0) {
-                this.workers[ix].freeRam -= task.resources.Ram;
-                this.workers[ix].reservedRam += task.resources.Ram;
-                if (!reservedWorkers.hasOwnProperty(task.name)) {
-                    reservedWorkers[task.name] = [];
-                }
-                reservedWorkers[task.name].push(this.workers[ix].hostname);
-            } else {
+            if (ix < 0) {
                 abort = true;
                 break;
             }
+            let worker = this.workers[ix];
+            worker.freeRam -= task.resources.Ram;
+            if (!taskSlots.hasOwnProperty(worker.hostname)) {
+                taskSlots[worker.hostname] = {slots:0, slotRam:task.resources.Ram};
+            }
+            taskSlots[worker.hostname].slots++;
         }
 
         if (abort) {
-            executionPlan.tasks.forEach((t) => {
-                let ix = this.workers.findIndex((w) => w.hostname === t.worker);
-                if (ix >= 0 ){
-                    this.workers[ix].freeRam += t.resources.Ram;
-                    this.workers[ix].reservedRam -= t.resources.Ram;
-                }
-            })
-
+            this.releaseWorkers(reservedWorkers);
             reservedWorkers = {};
         }
         return reservedWorkers;
     }
 
-    /** @param {BatchJob} job */
-    assignWorkersToJob(job) {
-        this.logger.debug(`assignWorkersToJob(${job.target})`);
-        let success = true;
-        for (let task of job.executionPlan.tasks) {
-            let ix = this.workers.findIndex((w) => w.freeRam >= task.resources.Ram);
-            if (ix >= 0) {
-                this.workers[ix].freeRam -= task.resources.Ram;
-                this.workers[ix].reservedRam += task.resources.Ram;
-                task.worker = this.workers[ix].hostname;
-            } else {
-                success = false;
-                break;
+    releaseWorkers(workerSlots) {
+        for (let taskName in workerSlots) {
+            let taskSlots = workerSlots[taskName];
+            for(let hostname in taskSlots) {
+                var worker = this.workers.find((w) => w.hostname === hostname);
+                worker.freeRam += taskSlots[hostname].slotRam * taskSlots[hostname].slots;
             }
+            delete workerSlots[taskName];
         }
-
-        return success;
     }
 
-    /** @param {BatchJob} job */
-    releaseWorkers(job) {
-        this.logger.debug(`releaseWorkers(${job.target})`);
-        job.executionPlan.tasks.forEach((t) => {
-            let ix = this.workers.findIndex((w) => w.hostname === t.worker);
-            if (ix >= 0 ){
-                this.workers[ix].freeRam += t.resources.Ram;
-                this.workers[ix].reservedRam -= t.resources.Ram;
+    startNewBatchRunner() {
+        this.logger.trace("startNewBatchRunner()");
+        //this.untargetedServers = this.hackableServers.filter((s) => this.batchRunners.findIndex((x) => x.target === s) == -1);
+        if (this.untargetedServers.length > 0) {
+            let target = this.untargetedServers.shift();
+            this.logger.info(`creating new batch runner for ${target}`)
+
+            // create a BatchRunner with maxBatches=1 for initialization purposes
+            let batchRunner = new this.batchRunnerType(this.ns, target, 1, {}, this.hackAmount);
+            let executionPlan = batchRunner.getExecutionPlan();
+            let workerSlots = this.reserveWorkers(executionPlan);
+            if (Object.keys(workerSlots).length <= 0) {
+                this.logger.warn(`Could not assign workers to BatchRunner[${target}]`);
             }
-        });
+            batchRunner.workerSlots = workerSlots;
+
+            this.initializingRunners.push(batchRunner);
+            this.batchRunners.push(batchRunner);
+            batchRunner.initializeTarget();
+        }
     }
 }

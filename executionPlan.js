@@ -1,4 +1,4 @@
-import { HackTask, GrowTask, WeakenTask } from "./task"
+import { Task, HackTask, GrowTask, WeakenTask } from "./task"
 import { getHackScriptRam, getGrowScriptRam, getWeakenScriptRam } from "./hgwUtilities";
 import { getGrowThreads, getHackThreads, getWeakenThreads } from "./hgwUtilities";
 import { timing } from "./config";
@@ -71,6 +71,7 @@ export class ExecutionPlan {
         this.logger.trace("constructor()");
         this.ns = ns;
         this.resourceRequirements = resourceRequirements;
+        /** @type {Task[]} */
         this.tasks = [];
     }
 
@@ -95,7 +96,7 @@ export class ExecutionPlan {
         for (var task of this.tasks) {
             var delay = (
                 (longestTask.duration - task.duration)
-                + (task.finishOrder * timing.batchBetweenScriptDelay))
+                + (task.finishOrder * timing.batchTaskDelay))
             // optionally: - (longest.FinishOrder * timing.batchBetweenScriptDelay)
             task.delay = delay;
         }

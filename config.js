@@ -5,10 +5,8 @@ export const scripts = {
 };
 
 export const timing = {
-    "hgwDelay": 2000,
-    "batchExecOrderDelay": 10000,
-    "batchBufferDelay": 10000,
-    "batchBetweenScriptDelay": 100
+    batchTaskDelay: 100,
+    newBatchDelay: 400
 };
 
 export const verbosity = 4;

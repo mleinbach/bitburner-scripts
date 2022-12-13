@@ -8,7 +8,7 @@ export async function main(ns) {
         const endTime = Date.now();
 
         if (port !== null) {
-            ns.tryWritePort(port, JSON.stringify({ id: id, batchId: batchId, startTime: startTime, endTime: endTime }));
+            ns.tryWritePort(port, JSON.stringify({ target:target, id: id, batchId: batchId, startTime: startTime, endTime: endTime }));
         }
     } catch (e) {
         ns.print(e.stack);
