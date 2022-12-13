@@ -28,7 +28,7 @@ class MockBatchRunner extends BatchRunner {
             workers.Mock.push("home")
         }
         
-        super(ns, "home", maxBatches, workers, MockExecutionPlanBuilder);
+        super(ns, "home", maxBatches, workers, 0.10, MockExecutionPlanBuilder);
         this.logger.debug(`workers=${JSON.stringify(workers)}`)
     }
 
