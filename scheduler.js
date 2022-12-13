@@ -134,7 +134,7 @@ export class Scheduler {
             let executionPlan = this.executionPlanBuilder.build(this.ns, target, hackAmount);
             let job = new BatchJob(this.ns, target, hackAmount, executionPlan);
             // use only grow/weaken part of batch
-            let wtf = job.executionPlan.tasks.filter((x) => x.finishOrder > 1);
+
             job.executionPlan.tasks = job.executionPlan.tasks.filter((x) => x.finishOrder > 1);
             if (this.assignWorkersToJob(job)){
                 job.run();
