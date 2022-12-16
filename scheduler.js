@@ -241,6 +241,8 @@ export class Scheduler {
     startNewBatchRunner() {
         this.logger.trace("startNewBatchRunner()");
         this.untargetedServers = this.hackableServers.filter((s) => this.batchRunners.findIndex((x) => x.target === s) == -1);
+        this.untargetedServers.sort(this.compareFn);
+        this.logger.info(`targets=${JSON.stringify(this.untargetedServers)}`)
         if (this.untargetedServers.length > 0) {
             let target = this.untargetedServers.shift();
             this.logger.info(`creating new batch runner for ${target}`)
@@ -250,6 +252,28 @@ export class Scheduler {
             this.batchRunners.push(batchRunner);
             this.initializeBatchRunnerTarget(batchRunner);
         }
+    }
+
+    prioritizeTargets() {
+        this.untargetedServers.sort((a, b) => {
+            let hacking = this.ns.getPlayer().skills.hacking
+            let aHackingRatio = Math.max(3, hacking / this.ns.getServerRequiredHackingLevel(a));
+            let bHackingRatio = Math.max(3, hacking / this.ns.getServerRequiredHackingLevel(b));
+            if (aHackingRatio > bHackingRatio) {
+                return 1;
+            } else if (bHackingRatio > aHackingRatio) {
+                return -1;
+            } else {
+                if (this.ns.getServerGrowth(a) > this.ns.getServerGrowth(b)) {
+                    return 1;
+                } else if (this.ns.getServerGrowth(b) > this.ns.getServerGrowth(a)) {
+                    return -1;
+                }
+                else {
+                    return this.ns.getServerMaxMoney(a) - this.ns.getServerMaxMoney(b);
+                }
+            }
+        });
     }
 
     displayStatistics() {
