@@ -21,12 +21,13 @@ export class BatchJob {
      */
     constructor(ns, target, executionPlan, id) {
         this.ns = ns;
-        this.logger = new Logger(this.ns, "BatchJob");
         this.target = target;
         this.executionPlan = executionPlan;
         this.id = id;
         this.startTime = null;
         this.endTime = null;
+
+        this.logger = new Logger(this.ns, `BatchJob-${this.target}-${this.id}`);
 
         this.status = BatchJobStatus.notStarted;
     }
@@ -40,6 +41,7 @@ export class BatchJob {
             this.startTime = Date.now();
         } catch (e) {
             this.logger.error(`Failed to start job:\n${e.stack}`);
+            this.status = BatchJobStatus.failed;
             return false;
         }
         return true;
@@ -54,14 +56,20 @@ export class BatchJob {
 
     getStatus() {
         this.logger.trace(`getStatus()`);
-        if (!(this.status === BatchJobStatus.running && this.getRunningTasks() <= 0)) {
+        if (this.status === BatchJobStatus.running
+            && this.executionPlan.tasks.some((t) => t.endTime === null)
+        ) {
             return this.status;
         }
 
-        this.executionPlan.tasks.sort((x, y) => x.endTime - y.endTime); 
-        let success = this.executionPlan.tasks.every((x, ix) => x.finishOrder === ix);
+        let finishOrderRanks = this.executionPlan.tasks.sort(
+            (x, y) => x.finishOrder - y.finishOrder).map((_t, ix) => ix);
+        let endTimeRanks = this.executionPlan.tasks.sort(
+            (x, y) => x.endTime - y.endTime).map((_t, ix) => ix);
+
+        let success = finishOrderRanks.every((x, ix) => x === endTimeRanks[ix]);
         this.status = success ? BatchJobStatus.success : BatchJobStatus.failed;
-        this.endTime = this.executionPlan.tasks[this.executionPlan.tasks.length-1].endTime;
+        this.endTime = this.executionPlan.tasks[this.executionPlan.tasks.length - 1].endTime;
         return this.status;
     }
 

@@ -16,6 +16,7 @@ export class Task extends NSProcess {
         this.name = name
         this.startOrder = null;
         this.delay = 0;
+        /** @type {String} */
         this.worker = null;
     }
 

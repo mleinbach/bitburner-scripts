@@ -35,7 +35,7 @@ export async function main(ns) {
 class MockScheduler extends Scheduler {
     constructor(...args) {
         super(...args);
-        this.untargetedServers = ["n00dles"];
+        this.untargetedServers = ["phantasy", "iron-gym"];
     }
 }
 
@@ -45,33 +45,11 @@ class MockBatchRunner extends BatchRunner {
         this.executionPlanBuilder = MockExecutionPlanBuilder
     }
 
-    initializeTarget() {
-        this.initializing = true;
-
-        let executionPlan = this.executionPlanBuilder.build(this.ns, this.target, 0.10);
-        let job = new BatchJob(this.ns, this.target, executionPlan, -1);
-
-        let success = this.assignWorkersToJob(job);
-        if (success) {
-            success = job.run();
-        } else {
-            throw new Error(`failed to assign workers during initialize target=${this.target}`);
-        }
-        if (success) {
-            this.logger.debug(`Started new batch; runningBatches=${this.batches.length}`);
-            this.batches.push(job);
-        } else {
-            throw new Error(`failed to start job during initilialize target=${this.target}`);
-        }
-    }
-
-    checkTargetInitilization() {
+    checkTargetInitialization() {
         if (this.initializing) {
             this.initializing = false;
         }
     }
-
-
 }
 
 export class MockTask extends Task {

@@ -1,9 +1,16 @@
-import { getAllHackableServers, getAllRootedServers, getRoot, updateScripts } from "./utilities";
-import { HWGWExecutionPlanBuilder, ExecutionPlan } from "./executionPlan";
+import { getAllHackableServers, getAllRootedServers, getRoot, nFormatter, updateScripts } from "./utilities";
 import { Logger } from "./logger";
 import { BatchRunner } from "./batchRunner";
 import { timing } from "./config";
 import { EMPTY_PORT, ports } from "./constants";
+import { BatchJob } from "./job";
+
+/**
+ * @typedef {Object} Worker
+ * @property {String} hostname
+ * @property {Number} maxRam
+ * @property {Number} freeRam
+*/
 
 export class Scheduler {
     /** 
@@ -17,6 +24,7 @@ export class Scheduler {
         this.ns = ns;
         this.batchRunnerType = batchRunnerType;
         this.portHandle = ns.getPortHandle(ports.BATCH_STATUS);
+        /** @type {Worker[]} */
         this.workers = [];
         /** @type {String[]} */
         this.hackableServers = [];
@@ -58,10 +66,11 @@ export class Scheduler {
         this.portHandle.clear();
     }
 
+    /** @returns {Worker[]} */
     updateWorkers() {
         this.logger.trace(`updateWorkers()`);
         getAllRootedServers(this.ns).filter((x) => x !== "home").map((s) => {
-            let maxRam = this.ns.getServerMaxRam(s)
+            let maxRam = this.ns.getServerMaxRam(s) - 0.05;
             return {
                 hostname: s,
                 maxRam: maxRam,
@@ -99,7 +108,8 @@ export class Scheduler {
             }
 
             this.batchRunners[ix].updateBatchStatus(portData);
-        }
+        } 
+
 
         
         for (let runner of this.initializingRunners) {
@@ -107,82 +117,110 @@ export class Scheduler {
                 continue;
             }
 
-            this.releaseWorkers(runner.workerSlots);
             let executionPlan = runner.getExecutionPlan();
             let maxBatches = Math.floor(executionPlan.getDuration() / (4 * timing.batchTaskDelay));
-            let taskSlots = {}
-            for (let i = 0; i < maxBatches; i++) {
-                var newTaskSlots = this.reserveWorkers(executionPlan)
-                for (let taskName in newTaskSlots) {
-                    if (!taskSlots.hasOwnProperty(taskName)){
-                        taskSlots[taskName] = {};
-                    }
-                    let newWorkerSlots = newTaskSlots[taskName];
-                    for (let hostname in newWorkerSlots) {
-                        if (!taskSlots[taskName].hasOwnProperty(hostname)){
-                            taskSlots[taskName][hostname] = {slots:0, slotRam:0};
-                        }
-                        taskSlots[taskName][hostname].slots += newWorkerSlots[hostname].slots;
-                        taskSlots[taskName][hostname].slotRam += newWorkerSlots[hostname].slotRam;
-                    }
-                }
-            }
-            this.logger.info(JSON.stringify(taskSlots, null, 2))
-            runner.workerSlots = taskSlots;
             runner.maxBatches = maxBatches;
         }
 
         this.initializingRunners = this.initializingRunners.filter((r) => r.initializing);
 
         for (let runner of this.batchRunners) {
+            let zombieBatches = runner.getZombieBatches();
+            if (zombieBatches.length > 0){
+                runner.needsReset = true;
+            }
             if (runner.needsReset) {
+                // reinitialize
+                runner.cancelJobs();
+                runner.batches.forEach((j) => this.releaseWorkers(j));
                 runner.reset();
+                runner.maxBatches = 1;
+                this.initializeBatchRunnerTarget(runner);
             } else {
+                // release workers for finished jobs
+                let completedBatches = runner.getCompletedBatches();
+                completedBatches.forEach((j) => this.releaseWorkers(j));
+
+                // clear finished jobs
                 runner.updateBatches();
-                runner.startNewBatch();
+
+                // create new job
+                this.startNewBatch(runner);
             }
         }
     }
 
-    /** @param {ExecutionPlan} executionPlan */
-    reserveWorkers(executionPlan) {
-        this.logger.trace(`reserveWorkers()`);
-        let abort = false;
-        let taskSlots = {};
-        for (let task of executionPlan.tasks) {
-            if (!taskSlots.hasOwnProperty(task.name)) {
-                taskSlots[task.name] = {};
-            }
-            let workerSlots = taskSlots[task.name];
+    /** @param {BatchRunner} runner */
+    startNewBatch(runner, hackAmount=null) {
+        this.logger.trace(`startNewBatch(): ${runner.target} ${runner.timeSinceLastBatch} ${runner.batches.length}`);
+        if (runner.getTimeSinceLastBatch() < timing.newBatchDelay || runner.batches.length >= runner.maxBatches){
+            return
+        }
+    
+        let executionPlan = runner.getExecutionPlan(hackAmount);
+        // run only gw part of plan if initializing
+        if (runner.initializing) {
+            executionPlan.tasks = executionPlan.tasks.filter((t) => t.finishOrder > 1);
+        }
 
+        // try to reserve resources
+        let job = new BatchJob(this.ns, runner.target, executionPlan, runner.getNextBatchId());
+        let reserveSuccess = this.reserveWorkers(job);
+        if (!reserveSuccess) {
+            this.logger.warn(`No workers available for job ${runner.target} - ${job.id}`);
+            this.releaseWorkers(job);
+            return
+        }
+
+        // try to start job
+        let startSuccess = runner.startBatch(job);
+        if (!startSuccess) {
+            this.logger.warn(`Job failed to start ${runner.target} - ${job.id}`);
+            this.releaseWorkers(job);
+        }
+
+        return reserveSuccess && startSuccess;
+    }
+
+    /** @param {BatchRunner} runner */
+    initializeBatchRunnerTarget(runner) {
+        this.logger.trace(`initializeBatchRunnerTarget(): ${runner.target}`);
+        runner.initializing = true;
+        this.initializingRunners.push(runner);
+
+        // hack amount is different upon initilization
+        let maxMoney = this.ns.getServerMoneyAvailable(runner.target);
+        let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(runner.target));
+        hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
+    
+        this.startNewBatch(runner, hackAmount);
+    }
+
+    /** @param {BatchJob} job */
+    reserveWorkers(job) {
+        this.logger.trace(`reserveWorkers(): ${job.id} ${job.target}`);
+        let success = true;
+        for (let task of job.executionPlan.tasks) {
             let ix = this.workers.findIndex((w) => w.freeRam > task.resources.Ram);
             if (ix < 0) {
-                abort = true;
+                success = false;
                 break;
             }
             let worker = this.workers[ix];
+            //this.logger.info(`reserved ${worker.hostname}, feeRam ${worker.freeRam}, actual ${this.ns.getServerMaxRam(worker.hostname) - this.ns.getServerUsedRam(worker.hostname)}`)
             worker.freeRam -= task.resources.Ram;
-            if (!workerSlots.hasOwnProperty(worker.hostname)) {
-                workerSlots[worker.hostname] = {slots:0, slotRam:task.resources.Ram};
-            }
-            workerSlots[worker.hostname].slots++;
+            task.worker = worker.hostname;
         }
-
-        if (abort) {
-            this.releaseWorkers(taskSlots);
-            taskSlots = {};
-        }
-        return taskSlots;
+        return success;
     }
 
-    releaseWorkers(workerSlots) {
-        for (let taskName in workerSlots) {
-            let taskSlots = workerSlots[taskName];
-            for(let hostname in taskSlots) {
-                var worker = this.workers.find((w) => w.hostname === hostname);
-                worker.freeRam += taskSlots[hostname].slotRam * taskSlots[hostname].slots;
-            }
-            delete workerSlots[taskName];
+    /** @param {BatchJob} job */
+    releaseWorkers(job) {
+        this.logger.trace(`releaseWorkers(): ${job.id} ${job.target}`);
+        for (let task of job.executionPlan.tasks.filter((t) => t.worker !== null)) {
+            var worker = this.workers.find((w) => w.hostname === task.worker);
+            worker.freeRam += task.resources.Ram;
+            task.worker = null;
         }
     }
 
@@ -194,23 +232,9 @@ export class Scheduler {
             this.logger.info(`creating new batch runner for ${target}`)
 
             // create a BatchRunner with maxBatches=1 for initialization purposes
-            let batchRunner = new this.batchRunnerType(this.ns, target, 1, {}, this.hackAmount);
-
-            let maxMoney = this.ns.getServerMoneyAvailable(target);
-            let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(target));
-            hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
-
-            let executionPlan = new HWGWExecutionPlanBuilder(this.ns, target, hackAmount).build();
-            executionPlan.tasks = executionPlan.tasks.filter((t) => t.finishOrder > 1);
-            let workerSlots = this.reserveWorkers(executionPlan);
-            if (Object.keys(workerSlots).length <= 0) {
-                this.logger.warn(`Could not assign workers to BatchRunner[${target}]`);
-            }
-            batchRunner.workerSlots = workerSlots;
-
-            this.initializingRunners.push(batchRunner);
+            let batchRunner = new this.batchRunnerType(this.ns, target, 1, this.hackAmount);
             this.batchRunners.push(batchRunner);
-            batchRunner.initializeTarget();
+            this.initializeBatchRunnerTarget(batchRunner);
         }
     }
 
@@ -218,15 +242,17 @@ export class Scheduler {
         this.ns.clearLog();
         const [dollarsPerSec, dollarsSinceAug] = this.ns.getTotalScriptIncome();
         const expGain = this.ns.getTotalScriptExpGain();
-        
-        this.logger.info(`Income ($/s): ${dollarsPerSec}`);
-        this.logger.info(`Exp Gain Rate: ${expGain}`);
-        this.logger.info(`Batch Runners:`)
+
+        const formattedDollarsPerSec = nFormatter(dollarsPerSec, 3);
+
+        this.ns.print(`Income ($/s): ${formattedDollarsPerSec}`);
+        this.ns.print(`Exp Gain Rate: ${expGain}`);
+        this.ns.print(`Batch Runners:`)
         for(let runner of this.batchRunners){
-            this.logger.info(`\t-Target: ${runner.target}`)
-            this.logger.info(`\t\t-Running: ${runner.batches.length}`)
-            this.logger.info(`\t\t-Succeeded: ${runner.succeededBatches}`);
-            this.logger.info(`\t\t-Failed: ${runner.failedBatches}`)
+            this.ns.print(`\t-Target: ${runner.target}`)
+            this.ns.print(`\t\t-Running: ${runner.batches.length}`)
+            this.ns.print(`\t\t-Succeeded: ${runner.succeededBatches}`);
+            this.ns.print(`\t\t-Failed: ${runner.failedBatches}`)
         }
     }
 }

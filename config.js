@@ -6,10 +6,10 @@ export const scripts = {
 
 export const timing = {
     batchTaskDelay: 100,
-    newBatchDelay: 300
+    newBatchDelay: 400
 };
 
-export const verbosity = 3;
+export const verbosity = 0;
 
 export const hackAmount = 0.25;
 

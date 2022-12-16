@@ -11,7 +11,7 @@ export class BatchRunner {
      * @param {Number} maxBatches
      * @param {any} workers
      */
-    constructor(ns, target, maxBatches, workers, hackAmount) {
+    constructor(ns, target, maxBatches, hackAmount) {
         this.logger = new Logger(ns, `BatchRunner-${target}`);
         this.logger.disableNSLogs();
         this.logger.trace("new BatchRunner()")
@@ -19,9 +19,8 @@ export class BatchRunner {
         this.ns = ns;
         this.target = target;
         this.maxBatches = maxBatches;
-        this.workerSlots = workers;
         /** @type {typeof ExecutionPlanBuilder} */
-        this.executionPlanBuilder = new HWGWExecutionPlanBuilder(this.ns, this.target, hackAmount);
+        this.executionPlanBuilder = HWGWExecutionPlanBuilder;
         this.hackAmount = hackAmount;
         /** @type {BatchJob[]} */
         this.batches = [];
@@ -35,118 +34,62 @@ export class BatchRunner {
         this.failedBatches = 0;
     }
 
-    reset() {
-        this.logger.trace("reset()")
-        this.batches.forEach((x) => {
-            x.cancel();
-            this.releaseWorkers(x);
-        });
-        this.batches = [];
-        this.needsReset = false;
-        this.lastBatchEndTime = 0;
-
-        this.initializeTarget();
-    }
-
-    /** @returns {ExecutionPlan} execution plan based on target server current attributes */
-    getExecutionPlan() {
-        this.logger.trace(`getExecutionPlan()`);
-        return this.executionPlanBuilder.build();
-    }
-
-    initializeTarget() {
-        this.initializing = true;
-        if (!this.checkTargetInitilization()) {
-            return;
-        }
-
-        let maxMoney = this.ns.getServerMoneyAvailable(this.target);
-        let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(this.target));
-        hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
-        this.executionPlanBuilder = new HWGWExecutionPlanBuilder(this.ns, this.target, hackAmount);
-
-        let executionPlan = this.getExecutionPlan();
-        executionPlan.tasks = executionPlan.tasks.filter((t) => t.finishOrder > 1);
-        let job = new BatchJob(this.ns, this.target, executionPlan, -1);
-
-        let success = this.assignWorkersToJob(job);
-        if (success) {
-            success = job.run();
-        }
-        if (success) {
-            this.batches.push(job);
-        } else {
-            throw new Error(`failed to initilialize target=${this.target}`);
-        }
-        job.executionPlan.tasks.forEach((t) => this.logger.info(`${t.name} ${t.finishOrder} ${t.pid}`));
-    }
-
-    startNewBatch() {
-        this.logger.trace("startNewBatch()");
-        let now = Date.now();
+    getTimeSinceLastBatch() {
+        let now = Date.now()
         this.timeSinceLastBatch += now - this.now;
         this.now = now;
-
-        if (this.initializing
-            || (this.timeSinceLastBatch < timing.newBatchDelay)
-            || (this.batches.length >= this.maxBatches)
-        ) {
-            return;
-        }
-
-        let executionPlan = this.getExecutionPlan();
-        let job = new BatchJob(this.ns, this.target, executionPlan, this.nextBatchId);
-        this.nextBatchId++;
-
-        let success = this.assignWorkersToJob(job);
-        if (success) {
-            success = job.run();
-        }
-        if (success) {
-            this.batches.push(job);
-        } else {
-            this.logger.warn("Job failed to start");
-            this.releaseWorkers(job);
-        }
-
-        this.timeSinceLastBatch = 0;
+        return this.timeSinceLastBatch;
     }
 
     /** @param {BatchJob} job */
-    assignWorkersToJob(job) {
-        this.logger.trace("assignWorkersToJob()");
-        let success = true;
-        for (let task of job.executionPlan.tasks) {
-            for (const w in this.workerSlots[task.name]) {
-                if (this.workerSlots[task.name][w].slots > 0) {
-                    task.worker = w;
-                    this.workerSlots[task.name][w].slots--;
-                    break;
-                }
-            }
-
-            if (task.worker === null) {
-                success = false;
-                break;
-            }
+    startBatch(job) {
+        this.logger.trace(`startBatch(): ${job.id}`)
+        this.timeSinceLastBatch = 0;
+        let success = job.run();
+        if (success) {
+            this.batches.push(job);
         }
-
         return success;
     }
 
-    /** @param {BatchJob} job */
-    releaseWorkers(job) {
-        this.logger.trace("releaseWorkers()");
-        for (let task of job.executionPlan.tasks) {
-            if (task.worker !== null) {
-                this.workerSlots[task.name][task.worker].slots++;
-            }
-            task.worker = null;
-        }
+    cancelJobs() {
+        this.batches.forEach((x) => {
+            x.cancel();
+        });
+    }
+
+    reset() {
+        this.batches = [];
+        this.needsReset = false;
+        this.lastBatch = null;
+    }
+
+    /** 
+     * @param {Number} hackAmount
+     * @returns {ExecutionPlan} execution plan based on target server current attributes
+     */
+    getExecutionPlan(hackAmount = null) {
+        this.logger.trace(`getExecutionPlan() ${hackAmount}`);
+        hackAmount = hackAmount !== null ? hackAmount : this.hackAmount;
+        return HWGWExecutionPlanBuilder.build(this.ns, this.target, hackAmount);
     }
 
     updateBatches() {
-        this.batches = this.batches.filter((b) => (b.getStatus() === BatchJobStatus.running) || (b.getStatus() === BatchJobStatus.notStarted));
+        this.batches = this.batches.filter((b) =>
+            (b.getStatus() === BatchJobStatus.running)
+            || (b.getStatus() === BatchJobStatus.notStarted));
+    }
+
+    getZombieBatches() {
+        return this.batches.filter((b) =>
+            (b.getStatus() === BatchJobStatus.running) && (b.getRunningTasks() <= 0));
+    }
+
+    getCompletedBatches() {
+        return this.batches.filter((b) =>
+            (b.getStatus() === BatchJobStatus.failed)
+            || (b.getStatus() === BatchJobStatus.success)
+            || (b.getStatus() === BatchJobStatus.canceled));
     }
 
     updateBatchStatus(portData) {
@@ -163,41 +106,54 @@ export class BatchRunner {
         task.startTime = portData.startTime;
         task.endTime = portData.endTime;
 
+        let failed = false;
         let status = batch.getStatus();
         if (status === BatchJobStatus.failed) {
             this.logger.error(`tasks ran out of order`);
-            this.needsReset = true;
             this.failedBatches++;
+            failed = true;
         } else if (status === BatchJobStatus.success) {
             if (this.lastBatch === null) {
                 this.lastBatch = batch;
-                this.failedBatches++;
+                this.succeededBatches++;
             } else {
                 let lastBatchEndTime = this.lastBatch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y >= 0 ? x : y);
                 let firstTaskEndTime = batch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y <= 0 ? x : y);
                 if (lastBatchEndTime < firstTaskEndTime) {
                     this.logger.success(`batch ${batch.id} succeeded`);
                     this.lastBatch = batch;
-                    this.releaseWorkers(batch);
-                    this.checkTargetInitilization();
+                    this.checkTargetInitialization();
+                    this.succeededBatches++;
                 } else {
+
                     this.logger.error(`batches ran out of order: lastBatchId=${this.lastBatch.id} lastBatchEndTime=${lastBatchEndTime}, currentBatchId=${batch.id} firstTaskEndTime=${firstTaskEndTime}`);
-                    this.needsReset = true;
                     this.failedBatches++;
+                    failed = true;
                 }
             }
+        }
 
+        if (failed && !this.checkTargetStatus()) {
+            this.needsReset = true;
         }
     }
 
-    checkTargetInitilization() {
+    checkTargetStatus() {
+        return this.ns.getServerMaxMoney(this.target) <= this.ns.getServerMoneyAvailable(this.target)
+            || this.ns.getServerMinSecurityLevel(this.target) >= this.ns.getServerSecurityLevel(this.target);
+    }
+
+    checkTargetInitialization() {
         if (this.initializing
             && (this.ns.getServerMaxMoney(this.target) <= this.ns.getServerMoneyAvailable(this.target)
                 || this.ns.getServerMinSecurityLevel(this.target) >= this.ns.getServerSecurityLevel(this.target)
             )) {
             this.initializing = false;
-            this.executionPlanBuilder = new HWGWExecutionPlanBuilder(this.ns, this.target, this.hackAmount);
         }
         return this.initializing;
+    }
+
+    getNextBatchId() {
+        return this.nextBatchId++;
     }
 }
