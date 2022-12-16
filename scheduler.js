@@ -25,13 +25,17 @@ export class Scheduler {
         this.batchRunnerType = batchRunnerType;
         this.portHandle = ns.getPortHandle(ports.BATCH_STATUS);
         /** @type {Worker[]} */
-        this.workers = [];
+        this.workers = [{
+            hostname: "home",
+            maxRam: (this.ns.getServerMaxRam("home") / 2) - 0.05,
+            freeRam: (this.ns.getServerMaxRam("home") / 2) - 0.05
+        }];
         /** @type {String[]} */
         this.hackableServers = [];
         /** @type {Number} */
         this.hackAmount = 0.10;
         /** @type {String[]} */
-        this.untargetedServers = ["phantasy"];
+        this.untargetedServers = [];
         /** @type {Number} */
         this.updateInterval = 50 //ms;
         /** @type {BatchRunner[]} */
@@ -226,7 +230,7 @@ export class Scheduler {
 
     startNewBatchRunner() {
         this.logger.trace("startNewBatchRunner()");
-        //this.untargetedServers = this.hackableServers.filter((s) => this.batchRunners.findIndex((x) => x.target === s) == -1);
+        this.untargetedServers = this.hackableServers.filter((s) => this.batchRunners.findIndex((x) => x.target === s) == -1);
         if (this.untargetedServers.length > 0) {
             let target = this.untargetedServers.shift();
             this.logger.info(`creating new batch runner for ${target}`)

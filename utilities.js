@@ -1,4 +1,5 @@
 import { hgwScripts} from "./constants.js"
+import { Logger } from "./logger.js";
 
 export function getOperationScript(operation) {
     if (operation.startsWith("Weaken")) {
@@ -82,15 +83,16 @@ export function updateScripts(ns) {
 
 /** @param {NS} ns */
 export function getRoot(ns, hostname) {
+    let logger = new Logger(ns, "Utilities");
     if (!ns.hasRootAccess(hostname) && isRootable(ns, hostname)) {
-        logInfo(ns, `utilities.js:getRoot - Getting root access on ${hostname}`)
+        logger.info(ns, `Getting root access on ${hostname}`)
 
         for (var [_toolName, toolFunc] of getAvailableTools(ns)) {
             toolFunc(hostname);
         }
 
         ns.nuke(hostname);
-        logInfo(ns, `utilities.js:getRootSuccessfully gained root access.`);
+        logger.info(ns, `Successfully gained root access.`);
 
         return true;
     }
