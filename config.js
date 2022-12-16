@@ -9,7 +9,7 @@ export const timing = {
     newBatchDelay: 400
 };
 
-export const verbosity = 0;
+export const verbosity = 3;
 
 export const hackAmount = 0.25;
 

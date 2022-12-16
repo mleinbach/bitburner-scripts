@@ -44,6 +44,8 @@ export class Scheduler {
         this.initializingRunners = [];
         this.enableStats = enableStats;
         this.statsInterval = 5000;
+        this.now = Date.now();
+        this.drift = 0;
     }
 
     async run() {
@@ -51,14 +53,22 @@ export class Scheduler {
         this.initialize();
 
         while (true) {
+            let now = Date.now();
+            this.drift = now - (this.now + this.updateInterval);
+            this.now = now;
+            if (this.drift >= 100) {
+                this.logger.warn(`Drift >100`);
+            }
             this.updateWorkers();
             this.updateHackableServers();
             this.updateBatchRunners();
             this.startNewBatchRunner();
-
-            if(this.enableStats && (Date.now() % this.statsInterval) <= 100) {
+            if((now % this.statsInterval) <= this.updateInterval) {
                 this.displayStatistics();
             }
+            let loopEnd = Date.now()
+            let loopTime = loopEnd - now;
+            this.logger.debug(`Loop took ${loopTime}ms`);
             await this.ns.sleep(this.updateInterval);
         }
     }
@@ -243,20 +253,26 @@ export class Scheduler {
     }
 
     displayStatistics() {
-        this.ns.clearLog();
         const [dollarsPerSec, dollarsSinceAug] = this.ns.getTotalScriptIncome();
         const expGain = this.ns.getTotalScriptExpGain();
 
-        const formattedDollarsPerSec = nFormatter(dollarsPerSec, 3);
+        const formattedExpGain = this.ns.nFormat(expGain, "0.000a");
+        const formattedDollarsPerSec = this.ns.nFormat(dollarsPerSec, "$0.000a")
 
-        this.ns.print(`Income ($/s): ${formattedDollarsPerSec}`);
-        this.ns.print(`Exp Gain Rate: ${expGain}`);
-        this.ns.print(`Batch Runners:`)
-        for(let runner of this.batchRunners){
-            this.ns.print(`\t-Target: ${runner.target}`)
-            this.ns.print(`\t\t-Running: ${runner.batches.length}`)
-            this.ns.print(`\t\t-Succeeded: ${runner.succeededBatches}`);
-            this.ns.print(`\t\t-Failed: ${runner.failedBatches}`)
+        let stats = {
+            moneyPerSec: formattedDollarsPerSec,
+            expPerSec: formattedExpGain,
+            running: 0,
+            succeeded: 0,
+            failed: 0
         }
+
+        this.batchRunners.forEach((r) => {
+            stats.running+=r.batches.length;
+            stats.succeeded+=r.succeededBatches;
+            stats.failed+=r.failedBatches;
+        })
+
+        this.logger.info(`Batcher Stats: ${JSON.stringify(stats, null, 2)}`);
     }
 }
