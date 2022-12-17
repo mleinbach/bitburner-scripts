@@ -288,6 +288,7 @@ displayStatistics() {
         const expGain = this.ns.getTotalScriptExpGain();
 
         const avgUpdateTime = this.loopTimes.reduce((p, c) => p + c, 0) / this.loopTimes.length;
+        const maxDrift = this.drifts.reduce((p, c) => c - p > 0 ? c : p);
         const totalDrift = this.drifts.reduce((p, c) => p + c, 0);
         const avgDrift =  totalDrift / this.drifts.length;
         this.loopTimes = [];
@@ -295,6 +296,7 @@ displayStatistics() {
 
         let stats = {
             totalDrift: this.ns.nFormat(totalDrift, "0.000"),
+            maxDrift: this.ns.nFormat(maxDrift, "0.000"),
             avgDrift: this.ns.nFormat(avgDrift, "0.000"),
             avgUpdateTime: this.ns.nFormat(avgUpdateTime, "0.000"),
             moneyPerSec: this.ns.nFormat(dollarsPerSec, "$0.000a"),
