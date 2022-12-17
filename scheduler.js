@@ -241,8 +241,7 @@ export class Scheduler {
     startNewBatchRunner() {
         this.logger.trace("startNewBatchRunner()");
         this.untargetedServers = this.hackableServers.filter((s) => this.batchRunners.findIndex((x) => x.target === s) == -1);
-        this.untargetedServers.sort(this.compareFn);
-        this.logger.info(`targets=${JSON.stringify(this.untargetedServers)}`)
+        this.prioritizeTargets();
         if (this.untargetedServers.length > 0) {
             let target = this.untargetedServers.shift();
             this.logger.info(`creating new batch runner for ${target}`)
@@ -257,20 +256,20 @@ export class Scheduler {
     prioritizeTargets() {
         this.untargetedServers.sort((a, b) => {
             let hacking = this.ns.getPlayer().skills.hacking
-            let aHackingRatio = Math.max(3, hacking / this.ns.getServerRequiredHackingLevel(a));
-            let bHackingRatio = Math.max(3, hacking / this.ns.getServerRequiredHackingLevel(b));
-            if (aHackingRatio > bHackingRatio) {
+            let aHackingRatio = Math.min(3, hacking / this.ns.getServerRequiredHackingLevel(a));
+            let bHackingRatio = Math.min(3, hacking / this.ns.getServerRequiredHackingLevel(b));
+            if (bHackingRatio > aHackingRatio) {
                 return 1;
-            } else if (bHackingRatio > aHackingRatio) {
+            } else if (aHackingRatio > bHackingRatio) {
                 return -1;
             } else {
-                if (this.ns.getServerGrowth(a) > this.ns.getServerGrowth(b)) {
+                if (this.ns.getServerGrowth(b) > this.ns.getServerGrowth(a)) {
                     return 1;
-                } else if (this.ns.getServerGrowth(b) > this.ns.getServerGrowth(a)) {
+                } else if (this.ns.getServerGrowth(a) > this.ns.getServerGrowth(b)) {
                     return -1;
                 }
                 else {
-                    return this.ns.getServerMaxMoney(a) - this.ns.getServerMaxMoney(b);
+                    return this.ns.getServerMaxMoney(b) - this.ns.getServerMaxMoney(a);
                 }
             }
         });
