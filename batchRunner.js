@@ -120,7 +120,7 @@ export class BatchRunner {
                 let lastBatchEndTime = this.lastBatch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y >= 0 ? x : y);
                 let firstTaskEndTime = batch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y <= 0 ? x : y);
                 if (lastBatchEndTime < firstTaskEndTime) {
-                    this.logger.success(`batch ${batch.id} succeeded`);
+                    //this.logger.success(`batch ${batch.id} succeeded`);
                     this.lastBatch = batch;
                     this.checkTargetInitialization();
                     this.succeededBatches++;

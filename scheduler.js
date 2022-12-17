@@ -1,4 +1,4 @@
-import { getAllHackableServers, getAllRootedServers, getRoot, nFormatter, updateScripts } from "./utilities";
+import { getAllServers, getRoot, updateScripts } from "./utilities";
 import { Logger } from "./logger";
 import { BatchRunner } from "./batchRunner";
 import { timing } from "./config";
@@ -31,13 +31,13 @@ export class Scheduler {
             freeRam: (this.ns.getServerMaxRam("home") / 2) - 0.05
         }];
         /** @type {String[]} */
-        this.hackableServers = [];
+        this.rootedServers = [];
         /** @type {Number} */
         this.hackAmount = 0.10;
         /** @type {String[]} */
         this.untargetedServers = [];
         /** @type {Number} */
-        this.updateInterval = 50 //ms;
+        this.updateInterval = 100 //ms;
         /** @type {BatchRunner[]} */
         this.batchRunners = [];
         /** @type {BatchRunner[]} */
@@ -45,7 +45,9 @@ export class Scheduler {
         this.enableStats = enableStats;
         this.statsInterval = 5000;
         this.now = Date.now();
-        this.drift = 0;
+        this.maxRunners = 5;
+        this.loopTimes = [];
+        this.drifts = [];
     }
 
     async run() {
@@ -54,36 +56,41 @@ export class Scheduler {
 
         while (true) {
             let now = Date.now();
-            this.drift = now - (this.now + this.updateInterval);
+            let drift = now - (this.now + this.updateInterval);
             this.now = now;
-            if (this.drift >= 100) {
-                this.logger.warn(`Drift >100`);
-            }
-            this.updateWorkers();
-            this.updateHackableServers();
+            this.drifts.push(drift);
+            this.updateServers();
             this.updateBatchRunners();
             this.startNewBatchRunner();
-            if((now % this.statsInterval) <= this.updateInterval) {
+            if ((now % this.statsInterval) <= this.updateInterval) {
                 this.displayStatistics();
             }
             let loopEnd = Date.now()
-            let loopTime = loopEnd - now;
-            this.logger.debug(`Loop took ${loopTime}ms`);
+            this.loopTimes.push(loopEnd - now);
             await this.ns.sleep(this.updateInterval);
         }
     }
 
     initialize() {
         updateScripts(this.ns);
-        this.updateWorkers();
+        this.updateServers();
         this.workers.forEach((w) => this.ns.killall(w.hostname, true));
         this.portHandle.clear();
+    }
+
+    updateServers() {
+        let curLenRootedServers = this.rootedServers.length;
+        this.rootedServers = getAllServers(this.ns).filter((s) => getRoot(this.ns, s));
+        if (this.rootedServers.length > curLenRootedServers) {
+            this.updateWorkers();
+            this.updateTargets();
+        }
     }
 
     /** @returns {Worker[]} */
     updateWorkers() {
         this.logger.trace(`updateWorkers()`);
-        getAllRootedServers(this.ns).filter((x) => x !== "home").map((s) => {
+        this.rootedServers.filter((x) => x !== "home").map((s) => {
             let maxRam = this.ns.getServerMaxRam(s) - 0.05;
             return {
                 hostname: s,
@@ -97,15 +104,41 @@ export class Scheduler {
         })
     }
 
-    updateHackableServers() {
-        this.logger.trace(`updateHackableServers()`);
-        getAllHackableServers(this.ns).forEach((s) => {
-            getRoot(this.ns, s)
-            if (this.hackableServers.findIndex((x) => x === s) < 0) {
-                this.hackableServers.push(s);
-            }
-        })
+    updateTargets() {
+        // prioritize targets
+        // by required hacking level > 1/3 player hacking skill
+        // then by max money
+        // then by growth
+        let hacking = this.ns.getPlayer().skills.hacking;
+        let targets = this.rootedServers.map((s) => {
+            let hackingRatio = Math.min(3, hacking / this.ns.getServerRequiredHackingLevel(s));
+            return {
+                hostname: s,
+                maxMoney: this.ns.getServerMaxMoney(s),
+                growth: this.ns.getServerGrowth(s),
+                hackingRatio: hackingRatio
+            };
+        }).filter((s) => !(
+            s.hostname.startsWith("pserv")
+            || s.hostname === "home"
+            || s.maxMoney <= 0
+            || s.hackingRatio <= 0)
+        ).sort((a, b) => b.growth - a.growth
+        ).sort((a, b) => b.maxMoney - a.maxMoney
+        ).sort((a, b) => b.hackingRatio - a.hackingRatio
+        ).map((s) => s.hostname
+        ).slice(0, this.maxRunners);
+
+        this.untargetedServers = targets.filter((s) => this.batchRunners.findIndex((x) => x.target === s) === -1);
+
+        // if we found some better targets than what we're currently hacking, reallocate runners.
+        if (this.untargetedServers.length > 0 && this.batchRunners.length === this.maxRunners) {
+            let removeRunners = this.batchRunners.filter((r) => targets.findIndex((t) => t === r.target) === -1);
+            removeRunners.forEach((r) => r.cancelJobs());
+            this.batchRunners = this.batchRunners.filter((r) => targets.findIndex((t) => t === r.target) !== -1);
+        }
     }
+
 
     updateBatchRunners() {
         this.logger.trace("updateBatchRunners()");
@@ -122,10 +155,10 @@ export class Scheduler {
             }
 
             this.batchRunners[ix].updateBatchStatus(portData);
-        } 
+        }
 
 
-        
+
         for (let runner of this.initializingRunners) {
             if (runner.initializing) {
                 continue;
@@ -140,7 +173,7 @@ export class Scheduler {
 
         for (let runner of this.batchRunners) {
             let zombieBatches = runner.getZombieBatches();
-            if (zombieBatches.length > 0){
+            if (zombieBatches.length > 0) {
                 runner.needsReset = true;
             }
             if (runner.needsReset) {
@@ -165,12 +198,12 @@ export class Scheduler {
     }
 
     /** @param {BatchRunner} runner */
-    startNewBatch(runner, hackAmount=null) {
+    startNewBatch(runner, hackAmount = null) {
         this.logger.trace(`startNewBatch(): ${runner.target} ${runner.timeSinceLastBatch} ${runner.batches.length}`);
-        if (runner.getTimeSinceLastBatch() < timing.newBatchDelay || runner.batches.length >= runner.maxBatches){
+        if (runner.getTimeSinceLastBatch() < timing.newBatchDelay || runner.batches.length >= runner.maxBatches) {
             return
         }
-    
+
         let executionPlan = runner.getExecutionPlan(hackAmount);
         // run only gw part of plan if initializing
         if (runner.initializing) {
@@ -206,7 +239,7 @@ export class Scheduler {
         let maxMoney = this.ns.getServerMoneyAvailable(runner.target);
         let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(runner.target));
         hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
-    
+
         this.startNewBatch(runner, hackAmount);
     }
 
@@ -221,7 +254,6 @@ export class Scheduler {
                 break;
             }
             let worker = this.workers[ix];
-            //this.logger.info(`reserved ${worker.hostname}, feeRam ${worker.freeRam}, actual ${this.ns.getServerMaxRam(worker.hostname) - this.ns.getServerUsedRam(worker.hostname)}`)
             worker.freeRam -= task.resources.Ram;
             task.worker = worker.hostname;
         }
@@ -240,8 +272,6 @@ export class Scheduler {
 
     startNewBatchRunner() {
         this.logger.trace("startNewBatchRunner()");
-        this.untargetedServers = this.hackableServers.filter((s) => this.batchRunners.findIndex((x) => x.target === s) == -1);
-        this.prioritizeTargets();
         if (this.untargetedServers.length > 0) {
             let target = this.untargetedServers.shift();
             this.logger.info(`creating new batch runner for ${target}`)
@@ -253,48 +283,41 @@ export class Scheduler {
         }
     }
 
-    prioritizeTargets() {
-        this.untargetedServers.sort((a, b) => {
-            let hacking = this.ns.getPlayer().skills.hacking
-            let aHackingRatio = Math.min(3, hacking / this.ns.getServerRequiredHackingLevel(a));
-            let bHackingRatio = Math.min(3, hacking / this.ns.getServerRequiredHackingLevel(b));
-            if (bHackingRatio > aHackingRatio) {
-                return 1;
-            } else if (aHackingRatio > bHackingRatio) {
-                return -1;
-            } else {
-                if (this.ns.getServerGrowth(b) > this.ns.getServerGrowth(a)) {
-                    return 1;
-                } else if (this.ns.getServerGrowth(a) > this.ns.getServerGrowth(b)) {
-                    return -1;
-                }
-                else {
-                    return this.ns.getServerMaxMoney(b) - this.ns.getServerMaxMoney(a);
-                }
-            }
-        });
-    }
-
-    displayStatistics() {
+displayStatistics() {
         const [dollarsPerSec, dollarsSinceAug] = this.ns.getTotalScriptIncome();
         const expGain = this.ns.getTotalScriptExpGain();
 
-        const formattedExpGain = this.ns.nFormat(expGain, "0.000a");
-        const formattedDollarsPerSec = this.ns.nFormat(dollarsPerSec, "$0.000a")
+        const avgUpdateTime = this.loopTimes.reduce((p, c) => p + c, 0) / this.loopTimes.length;
+        const totalDrift = this.drifts.reduce((p, c) => p + c, 0);
+        const avgDrift =  totalDrift / this.drifts.length;
+        this.loopTimes = [];
+        this.drifts = [];
 
         let stats = {
-            moneyPerSec: formattedDollarsPerSec,
-            expPerSec: formattedExpGain,
+            totalDrift: this.ns.nFormat(totalDrift, "0.000"),
+            avgDrift: this.ns.nFormat(avgDrift, "0.000"),
+            avgUpdateTime: this.ns.nFormat(avgUpdateTime, "0.000"),
+            moneyPerSec: this.ns.nFormat(dollarsPerSec, "$0.000a"),
+            expPerSec: this.ns.nFormat(expGain, "0.000a"),
             running: 0,
             succeeded: 0,
-            failed: 0
-        }
+            failed: 0,
+            runners: []
+        };
 
-        this.batchRunners.forEach((r) => {
-            stats.running+=r.batches.length;
-            stats.succeeded+=r.succeededBatches;
-            stats.failed+=r.failedBatches;
-        })
+        this.batchRunners.map((r) => {
+            return {
+                target: r.target,
+                running: r.batches.length,
+                succeeded: r.succeededBatches,
+                failed: r.failedBatches
+            }
+        }).forEach((r) => {
+            stats.runners.push(r);
+            stats.running += r.running;
+            stats.succeeded += r.succeeded;
+            stats.failed += r.failed;
+        });
 
         this.logger.info(`Batcher Stats: ${JSON.stringify(stats, null, 2)}`);
     }

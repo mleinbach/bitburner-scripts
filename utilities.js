@@ -84,19 +84,22 @@ export function updateScripts(ns) {
 /** @param {NS} ns */
 export function getRoot(ns, hostname) {
     let logger = new Logger(ns, "Utilities");
-    if (!ns.hasRootAccess(hostname) && isRootable(ns, hostname)) {
-        logger.info(ns, `Getting root access on ${hostname}`)
-
-        for (var [_toolName, toolFunc] of getAvailableTools(ns)) {
-            toolFunc(hostname);
-        }
-
-        ns.nuke(hostname);
-        logger.info(ns, `Successfully gained root access.`);
-
+    if (ns.hasRootAccess(hostname)) {
         return true;
     }
-    return false;
+    if (!isRootable(ns, hostname)) {
+        return false;
+    }
+
+    logger.info(ns, `Getting root access on ${hostname}`)
+
+    for (var [_toolName, toolFunc] of getAvailableTools(ns)) {
+        toolFunc(hostname);
+    }
+
+    ns.nuke(hostname);
+
+    return true;
 }
 
 /** 
