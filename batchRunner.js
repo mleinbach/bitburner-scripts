@@ -99,8 +99,9 @@ export class BatchRunner {
         // batch is running behind, cancel batch that ran after this one.
         if (ix >= 0 && this.batches.length > ix+1) {
             this.logger.warn(`Batch ${this.batches[ix].id} is behind schedule (drift=${this.batches[ix].drift}), cancelling next job.`);
-            this.batches[ix].cancel();
+            this.batches[ix+1].cancel();
             this.cancelledBatches++;
+            this.updateBatches();
         }
     }
 
