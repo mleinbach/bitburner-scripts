@@ -18,6 +18,7 @@ export class Task extends NSProcess {
         this.delay = 0;
         /** @type {String} */
         this.worker = null;
+        this.expectedEndTime = null;
     }
 
     totalDuration() {
@@ -25,7 +26,8 @@ export class Task extends NSProcess {
     }
 
     execute(args) {
-        return super.execute(this.worker, this.resources.Threads, args);
+        super.execute(this.worker, this.resources.Threads, args);
+        this.expectedEndTime = this.startTime += this.totalDuration();
     }
 }
 

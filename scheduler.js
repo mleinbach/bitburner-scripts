@@ -142,6 +142,14 @@ export class Scheduler {
 
     updateBatchRunners() {
         this.logger.trace("updateBatchRunners()");
+
+        // TODO: check batch tasks expected end time for drift > tolerance.
+        // for (let runner of this.batchRunners) {
+        //     let drift = 0;
+        //     runner.batches
+        // }
+
+        // check for task finished reports
         while (this.portHandle.peek() !== EMPTY_PORT) {
             // get task finished data from port
             let portData = JSON.parse(this.portHandle.read());

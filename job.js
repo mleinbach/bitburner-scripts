@@ -73,6 +73,17 @@ export class BatchJob {
         return this.status;
     }
 
+    // checkTaskStatus() {
+    //     let now = Date.now();
+    //     let totalDrift = 
+    //     for (let task of this.executionPlan.tasks) {
+    //         let drift = now - task.expectedEndTime;
+    //         if (task.endTime !== null) {
+    //             drift = now - task.endTime;
+    //         }
+    //     }
+    // }
+
     getRunningTasks() {
         this.logger.trace(`getRunningTasks()`);
         return this.executionPlan.tasks.filter((x) => x.isRunning()).length;

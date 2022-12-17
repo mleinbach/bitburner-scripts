@@ -28,6 +28,7 @@ export class BatchRunner {
         this.initializing = false;
         this.now = Date.now();
         this.timeSinceLastBatch = 0;
+        /** @type {BatchJob} */
         this.lastBatch = null;
         this.nextBatchId = 0;
         this.succeededBatches = 0;
@@ -92,6 +93,12 @@ export class BatchRunner {
             || (b.getStatus() === BatchJobStatus.canceled));
     }
 
+    // checkBatchStatus() {
+    //     for (let batch of this.batches) {
+
+    //     }
+    // }
+
     updateBatchStatus(portData) {
         this.logger.trace(`updateBatch() - portData=${JSON.stringify(portData)}`)
 
@@ -125,8 +132,23 @@ export class BatchRunner {
                     this.checkTargetInitialization();
                     this.succeededBatches++;
                 } else {
-
                     this.logger.error(`batches ran out of order: lastBatchId=${this.lastBatch.id} lastBatchEndTime=${lastBatchEndTime}, currentBatchId=${batch.id} firstTaskEndTime=${firstTaskEndTime}`);
+                    const lastBatchTasks = this.lastBatch.executionPlan.tasks.map((t) => {
+                        return {
+                            startTime:new Date(t.startTime).toISOString(),
+                            endTime:new Date(t.endTime).toISOString(),
+                            expectedEndTime: new Date(t.expectedEndTime).toISOString()
+                        }
+                    });
+                    const currentBatchTasks = batch.executionPlan.tasks.map((t) => {
+                        return {
+                            startTime:new Date(t.startTime).toISOString(),
+                            endTime:new Date(t.endTime).toISOString(),
+                            expectedEndTime: new Date(t.expectedEndTime).toISOString()
+                        }
+                    });
+                    this.logger.info(`lastBatchTasks=${JSON.stringify(lastBatchTasks, null, 2)}`);
+                    this.logger.info(`currentBatchTasks=${JSON.stringify(currentBatchTasks, null, 2)}`);
                     this.failedBatches++;
                     failed = true;
                 }
@@ -134,6 +156,7 @@ export class BatchRunner {
         }
 
         if (failed && !this.checkTargetStatus()) {
+            this.lastBatch = batch;
             this.needsReset = true;
         }
     }
