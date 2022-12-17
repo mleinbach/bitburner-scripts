@@ -2,6 +2,7 @@ import { ExecutionPlan } from "./executionPlan";
 import { Logger } from "./logger";
 import { ExecError } from "./nsProcess";
 import { ports } from "./constants";
+import { timing } from "./config";
 
 export class BatchJobStatus {
     static running = "RUNNING";
@@ -26,6 +27,7 @@ export class BatchJob {
         this.id = id;
         this.startTime = null;
         this.endTime = null;
+        this.expectedEndTime = null;
 
         this.logger = new Logger(this.ns, `BatchJob-${this.target}-${this.id}`);
 
@@ -39,6 +41,7 @@ export class BatchJob {
             this.executionPlan.tasks.forEach((x) => x.execute([x.delay, this.id, ports.BATCH_STATUS]));
             this.status = BatchJobStatus.running;
             this.startTime = Date.now();
+            this.expectedEndTime = this.startTime + this.getBatchDuration();
         } catch (e) {
             this.logger.error(`Failed to start job:\n${e.stack}`);
             this.status = BatchJobStatus.failed;
@@ -73,16 +76,11 @@ export class BatchJob {
         return this.status;
     }
 
-    // checkTaskStatus() {
-    //     let now = Date.now();
-    //     let totalDrift = 
-    //     for (let task of this.executionPlan.tasks) {
-    //         let drift = now - task.expectedEndTime;
-    //         if (task.endTime !== null) {
-    //             drift = now - task.endTime;
-    //         }
-    //     }
-    // }
+    isOnSchedule() {
+        let now = Date.now();
+        let drift = now - this.expectedEndTime;
+        return drift >= timing.batchTaskDelay;
+    }
 
     getRunningTasks() {
         this.logger.trace(`getRunningTasks()`);

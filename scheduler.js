@@ -143,11 +143,8 @@ export class Scheduler {
     updateBatchRunners() {
         this.logger.trace("updateBatchRunners()");
 
-        // TODO: check batch tasks expected end time for drift > tolerance.
-        // for (let runner of this.batchRunners) {
-        //     let drift = 0;
-        //     runner.batches
-        // }
+        // check batch tasks expected end time for drift > tolerance.
+        this.batchRunners.forEach((r) => r.checkBatchEstimatedTimes());
 
         // check for task finished reports
         while (this.portHandle.peek() !== EMPTY_PORT) {
@@ -312,6 +309,7 @@ displayStatistics() {
             running: 0,
             succeeded: 0,
             failed: 0,
+            cancelled: 0,
             runners: []
         };
 
@@ -320,13 +318,15 @@ displayStatistics() {
                 target: r.target,
                 running: r.batches.length,
                 succeeded: r.succeededBatches,
-                failed: r.failedBatches
+                failed: r.failedBatches,
+                cancelled: r.cancelledBatches
             }
         }).forEach((r) => {
             stats.runners.push(r);
             stats.running += r.running;
             stats.succeeded += r.succeeded;
             stats.failed += r.failed;
+            stats.cancelled += r.cancelled;
         });
 
         this.logger.info(`Batcher Stats: ${JSON.stringify(stats, null, 2)}`);

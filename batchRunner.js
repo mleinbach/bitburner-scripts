@@ -33,6 +33,7 @@ export class BatchRunner {
         this.nextBatchId = 0;
         this.succeededBatches = 0;
         this.failedBatches = 0;
+        this.cancelledBatches = 0;
     }
 
     getTimeSinceLastBatch() {
@@ -93,11 +94,15 @@ export class BatchRunner {
             || (b.getStatus() === BatchJobStatus.canceled));
     }
 
-    // checkBatchStatus() {
-    //     for (let batch of this.batches) {
-
-    //     }
-    // }
+    checkBatchEstimatedTimes() {
+        let ix = this.batches.findIndex((b) => !batch.isOnSchedule());
+        // batch is running behind, cancel batch that ran after this one.
+        if (ix >= 0 && this.batches.length > ix+1) {
+            this.logger.warn(`Batch ${this.batches[ix].id} is behind schedule, cancelling next job.`);
+            this.batches[ix].cancel();
+            this.cancelledBatches++;
+        }
+    }
 
     updateBatchStatus(portData) {
         this.logger.trace(`updateBatch() - portData=${JSON.stringify(portData)}`)
@@ -113,12 +118,11 @@ export class BatchRunner {
         task.startTime = portData.startTime;
         task.endTime = portData.endTime;
 
-        let failed = false;
         let status = batch.getStatus();
         if (status === BatchJobStatus.failed) {
             this.logger.error(`tasks ran out of order`);
             this.failedBatches++;
-            failed = true;
+            this.needsReset = true;
         } else if (status === BatchJobStatus.success) {
             if (this.lastBatch === null) {
                 this.lastBatch = batch;
@@ -150,14 +154,9 @@ export class BatchRunner {
                     this.logger.info(`lastBatchTasks=${JSON.stringify(lastBatchTasks, null, 2)}`);
                     this.logger.info(`currentBatchTasks=${JSON.stringify(currentBatchTasks, null, 2)}`);
                     this.failedBatches++;
-                    failed = true;
+                    this.needsReset = true;
                 }
             }
-        }
-
-        if (failed && !this.checkTargetStatus()) {
-            this.lastBatch = batch;
-            this.needsReset = true;
         }
     }
 
