@@ -28,6 +28,7 @@ export class BatchJob {
         this.startTime = null;
         this.endTime = null;
         this.expectedEndTime = null;
+        this.drift = 0;
 
         this.logger = new Logger(this.ns, `BatchJob-${this.target}-${this.id}`);
 
@@ -79,7 +80,20 @@ export class BatchJob {
     isOnSchedule() {
         let now = Date.now();
         let drift = now - this.expectedEndTime;
-        return drift >= timing.batchTaskDelay;
+        this.drift = drift;
+        // if (drift >= timing.batchTaskDelay) {
+        //     let props = {
+        //         id: this.id,
+        //         startTime: new Date(this.startTime).toISOString(),
+        //         expectedEndTime: new Date(this.expectedEndTime).toISOString(),
+        //         now: new Date(now).toISOString(),
+        //         drift: drift,
+        //         expectedDuration: this.getBatchDuration()
+        //     }
+        //     this.logger.warn(`N${JSON.stringify(props, null, 2)}`);
+        // }
+        
+        return drift < timing.batchTaskDelay;
     }
 
     getRunningTasks() {
