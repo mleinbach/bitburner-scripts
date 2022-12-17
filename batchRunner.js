@@ -95,7 +95,7 @@ export class BatchRunner {
     }
 
     checkBatchEstimatedTimes() {
-        let ix = this.batches.findIndex((b) => !batch.isOnSchedule());
+        let ix = this.batches.findIndex((b) => !b.isOnSchedule());
         // batch is running behind, cancel batch that ran after this one.
         if (ix >= 0 && this.batches.length > ix+1) {
             this.logger.warn(`Batch ${this.batches[ix].id} is behind schedule, cancelling next job.`);
