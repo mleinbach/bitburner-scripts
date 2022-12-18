@@ -1,4 +1,5 @@
 import { hgwScripts} from "./constants.js"
+import { Logger } from "./logger.js";
 
 export function getOperationScript(operation) {
     if (operation.startsWith("Weaken")) {
@@ -82,19 +83,23 @@ export function updateScripts(ns) {
 
 /** @param {NS} ns */
 export function getRoot(ns, hostname) {
-    if (!ns.hasRootAccess(hostname) && isRootable(ns, hostname)) {
-        logInfo(ns, `utilities.js:getRoot - Getting root access on ${hostname}`)
-
-        for (var [_toolName, toolFunc] of getAvailableTools(ns)) {
-            toolFunc(hostname);
-        }
-
-        ns.nuke(hostname);
-        logInfo(ns, `utilities.js:getRootSuccessfully gained root access.`);
-
+    let logger = new Logger(ns, "Utilities");
+    if (ns.hasRootAccess(hostname)) {
         return true;
     }
-    return false;
+    if (!isRootable(ns, hostname)) {
+        return false;
+    }
+
+    logger.info(ns, `Getting root access on ${hostname}`)
+
+    for (var [_toolName, toolFunc] of getAvailableTools(ns)) {
+        toolFunc(hostname);
+    }
+
+    ns.nuke(hostname);
+
+    return true;
 }
 
 /** 
@@ -120,3 +125,20 @@ export function getAvailableTools(ns) {
     ];
     return hackingTools.filter(([toolName, _toolFunc]) => ns.fileExists(toolName, "home"));
 }
+
+export function nFormatter(num, digits) {
+    const lookup = [
+      { value: 1, symbol: "" },
+      { value: 1e3, symbol: "k" },
+      { value: 1e6, symbol: "M" },
+      { value: 1e9, symbol: "G" },
+      { value: 1e12, symbol: "T" },
+      { value: 1e15, symbol: "P" },
+      { value: 1e18, symbol: "E" }
+    ];
+    const rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
+    var item = lookup.slice().reverse().find(function(item) {
+      return num >= item.value;
+    });
+    return item ? (num / item.value).toFixed(digits).replace(rx, "$1") + item.symbol : "0";
+  }

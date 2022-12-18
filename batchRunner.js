@@ -1,7 +1,8 @@
-import { timing } from "./config";
-import { ExecutionPlanBuilder } from "./executionPlan";
-import { BatchJob } from "./job";
+import { ExecutionPlanBuilder, HWGWExecutionPlanBuilder } from "./executionPlan";
+import { ExecutionPlan } from "./executionPlan";
+import { BatchJob, BatchJobStatus } from "./job";
 import { Logger } from "./logger";
+import { timing } from "./config";
 
 export class BatchRunner {
     /**
@@ -9,137 +10,173 @@ export class BatchRunner {
      * @param {String} target
      * @param {Number} maxBatches
      * @param {any} workers
-     * @param {typeof ExecutionPlanBuilder} executionPlanBuilder
      */
-    constructor(ns, target, maxBatches, workers, hackAmount, executionPlanBuilder) {
-        this.logger = new Logger(ns, "BatchRunner");
+    constructor(ns, target, maxBatches, hackAmount) {
+        this.logger = new Logger(ns, `BatchRunner-${target}`);
         this.logger.disableNSLogs();
-        this.logger.debug("constructor()")
+        this.logger.trace("new BatchRunner()")
 
         this.ns = ns;
         this.target = target;
         this.maxBatches = maxBatches;
-        this.workers = workers;
+        /** @type {typeof ExecutionPlanBuilder} */
+        this.executionPlanBuilder = HWGWExecutionPlanBuilder;
         this.hackAmount = hackAmount;
-        this.executionPlanBuilder = executionPlanBuilder;
+        /** @type {BatchJob[]} */
         this.batches = [];
         this.needsReset = false;
-        this.lastBatchStatus = {
-            Status: "N/A",
-            FinishTimes: [0, 0, 0, 0]
-        }
-        this.updateInterval = 50; //ms
-        this.cycles = 0;
+        this.initializing = false;
+        this.now = Date.now();
+        this.timeSinceLastBatch = 0;
+        /** @type {BatchJob} */
+        this.lastBatch = null;
+        this.nextBatchId = 0;
+        this.succeededBatches = 0;
+        this.failedBatches = 0;
+        this.cancelledBatches = 0;
     }
 
-    async run() {
-        this.logger.debug("run()")
-        while (true) {
-
-            // check completed batches for failures
-            let runningBatches = [];
-            for (var batch of this.batches) {
-                let batchStatus = batch.getStatus();
-
-                if (batchStatus.Status === "FAILED") {
-                    this.logger.error(`tasks ran out of order`);
-                    this.needsReset = true;
-                } else if (batchStatus.Status === "SUCCESS") {
-                    let lastTaskTime = this.lastBatchStatus.FinishTimes.reduce((x, y) => x - y >= 0 ? x : y);
-                    let firstTaskTime = batchStatus.FinishTimes.reduce((x, y) => x - y <= 0 ? x : y);
-                    if (lastTaskTime < firstTaskTime) {
-                        this.lastBatchStatus = batchStatus;
-                        this.releaseWorkers(batch);
-                        this.logger.success(`batch succeeded`);
-                    } else {
-                        this.logger.error(`batches ran out of order`);
-                        this.needsReset = true;
-                    }
-                } else {
-                    runningBatches.push(batch);
-                }
-            }
-
-            // reset if failure detected
-            if (this.needsReset) {
-                await this.reset();
-            }
-            else {
-                this.batches = runningBatches;
-            }
-
-            //TODO: clean up
-            if (((this.cycles * this.updateInterval) >= 3 * timing.batchBetweenScriptDelay)
-                && (this.batches.length < this.maxBatches)) {
-                let executionPlan = this.executionPlanBuilder.build(this.ns, this.target, this.hackAmount);
-                let job = new BatchJob(this.ns, this.target, this.hackAmount, executionPlan)
-                if (!this.assignWorkersToJob(job)) {
-                    this.logger.warn("no workers available for batch");
-                    this.releaseWorkers(job);
-                }
-                if(job.run()) {
-                    this.logger.debug(`Started new batch; runningBatches=${this.batches.length}`);
-                    this.batches.push(job);
-                } else {
-                    this.logger.warn("Job failed to start");
-                    this.releaseWorkers(job);
-                }
-                this.cycles = 0;
-            }
-            else {
-                this.cycles++;
-            }
-
-            await this.ns.sleep(this.updateInterval);
-        }
-    }
-
-    async reset() {
-        this.logger.debug("reset()")
-        this.batches.forEach((x) => {
-            x.cancel();
-            this.releaseWorkers(x);
-        });
-        this.batches = [];
-
-        let minSecurity = this.ns.getServerMinSecurityLevel(this.target);
-        let maxMoney = this.ns.getServerMaxMoney(this.target);
-        let hackAmount = maxMoney / (maxMoney - this.ns.getServerMoneyAvailable(this.target));
-        hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
-        while (this.ns.getServerSecurityLevel(this.target) > minSecurity || this.ns.getServerMoneyAvailable(this.target) < maxMoney){
-            let executionPlan = this.executionPlanBuilder.build(this.ns, this.target, hackAmount);
-            let job = new BatchJob(this.ns, this.target, hackAmount, executionPlan);
-            // use only grow/weaken part of batch
-            job.executionPlan.tasks = job.executionPlan.tasks.filter((x) => x.finishOrder > 1);
-            this.assignWorkersToJob(job);
-            job.run();
-            await job.waitForCompletion();
-            this.releaseWorkers(job);
-        }
-        this.needsReset = false;
+    getTimeSinceLastBatch() {
+        let now = Date.now()
+        this.timeSinceLastBatch += now - this.now;
+        this.now = now;
+        return this.timeSinceLastBatch;
     }
 
     /** @param {BatchJob} job */
-    assignWorkersToJob(job) {
-        this.logger.debug("assignWorkersToJob()");
-        let success = true;
-        for (let task of job.executionPlan.tasks) {
-            if (this.workers[task.name].length == 0) {
-                success = false;
-                break;
-            }
-            task.worker = this.workers[task.name].shift();
+    startBatch(job) {
+        this.logger.trace(`startBatch(): ${job.id}`)
+        this.timeSinceLastBatch = 0;
+        let success = job.run();
+        if (success) {
+            this.batches.push(job);
         }
         return success;
     }
 
-    /** @param {BatchJob} job */
-    releaseWorkers(job) {
-        this.logger.debug("releaseWorkers()");
-        for (let task of job.executionPlan.tasks) {
-            if (task.worker !== null) {
-                this.workers[task.name].push(task.worker);
+    cancelJobs() {
+        this.batches.forEach((x) => {
+            x.cancel();
+        });
+    }
+
+    reset() {
+        this.batches = [];
+        this.needsReset = false;
+        this.lastBatch = null;
+    }
+
+    /** 
+     * @param {Number} hackAmount
+     * @returns {ExecutionPlan} execution plan based on target server current attributes
+     */
+    getExecutionPlan(hackAmount = null) {
+        this.logger.trace(`getExecutionPlan() ${hackAmount}`);
+        hackAmount = hackAmount !== null ? hackAmount : this.hackAmount;
+        return HWGWExecutionPlanBuilder.build(this.ns, this.target, hackAmount);
+    }
+
+    updateBatches() {
+        this.batches = this.batches.filter((b) =>
+            (b.getStatus() === BatchJobStatus.running)
+            || (b.getStatus() === BatchJobStatus.notStarted));
+    }
+
+    getZombieBatches() {
+        return this.batches.filter((b) =>
+            (b.getStatus() === BatchJobStatus.running) && (b.getRunningTasks() <= 0));
+    }
+
+    getCompletedBatches() {
+        return this.batches.filter((b) =>
+            (b.getStatus() === BatchJobStatus.failed)
+            || (b.getStatus() === BatchJobStatus.success)
+            || (b.getStatus() === BatchJobStatus.canceled));
+    }
+
+    checkBatchEstimatedTimes() {
+        let ix = this.batches.findIndex((b) => !b.isOnSchedule());
+        // batch is running behind, cancel batch that ran after this one.
+        if (ix >= 0 && this.batches.length > ix+1) {
+            this.logger.warn(`Batch ${this.batches[ix].id} is behind schedule (drift=${this.batches[ix].drift}), cancelling next job.`);
+            this.batches[ix+1].cancel();
+            this.cancelledBatches++;
+            this.updateBatches();
+        }
+    }
+
+    updateBatchStatus(portData) {
+        this.logger.trace(`updateBatch() - portData=${JSON.stringify(portData)}`)
+
+        let ix = this.batches.findIndex((x) => x.id === portData.batchId);
+        if (ix < 0) {
+            this.logger.warn(`recieved task data for unknown batch`);
+            return;
+        }
+
+        let batch = this.batches[ix];
+        let task = batch.getTask(portData.id);
+        task.startTime = portData.startTime;
+        task.endTime = portData.endTime;
+
+        let status = batch.getStatus();
+        if (status === BatchJobStatus.failed) {
+            this.logger.error(`tasks ran out of order`);
+            this.failedBatches++;
+            this.needsReset = true;
+        } else if (status === BatchJobStatus.success) {
+            if (this.lastBatch === null) {
+                this.lastBatch = batch;
+                this.succeededBatches++;
+            } else {
+                let lastBatchEndTime = this.lastBatch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y >= 0 ? x : y);
+                let firstTaskEndTime = batch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y <= 0 ? x : y);
+                if (lastBatchEndTime < firstTaskEndTime) {
+                    //this.logger.success(`batch ${batch.id} succeeded`);
+                    this.lastBatch = batch;
+                    this.checkTargetInitialization();
+                    this.succeededBatches++;
+                } else {
+                    this.logger.error(`batches ran out of order: lastBatchId=${this.lastBatch.id} lastBatchEndTime=${lastBatchEndTime}, currentBatchId=${batch.id} firstTaskEndTime=${firstTaskEndTime}`);
+                    const lastBatchTasks = this.lastBatch.executionPlan.tasks.map((t) => {
+                        return {
+                            startTime:new Date(t.startTime).toISOString(),
+                            endTime:new Date(t.endTime).toISOString(),
+                            expectedEndTime: new Date(t.expectedEndTime).toISOString()
+                        }
+                    });
+                    const currentBatchTasks = batch.executionPlan.tasks.map((t) => {
+                        return {
+                            startTime:new Date(t.startTime).toISOString(),
+                            endTime:new Date(t.endTime).toISOString(),
+                            expectedEndTime: new Date(t.expectedEndTime).toISOString()
+                        }
+                    });
+                    this.logger.info(`lastBatchTasks=${JSON.stringify(lastBatchTasks, null, 2)}`);
+                    this.logger.info(`currentBatchTasks=${JSON.stringify(currentBatchTasks, null, 2)}`);
+                    this.failedBatches++;
+                    this.needsReset = true;
+                }
             }
         }
+    }
+
+    checkTargetStatus() {
+        return this.ns.getServerMaxMoney(this.target) <= this.ns.getServerMoneyAvailable(this.target)
+            || this.ns.getServerMinSecurityLevel(this.target) >= this.ns.getServerSecurityLevel(this.target);
+    }
+
+    checkTargetInitialization() {
+        if (this.initializing
+            && (this.ns.getServerMaxMoney(this.target) <= this.ns.getServerMoneyAvailable(this.target)
+                || this.ns.getServerMinSecurityLevel(this.target) >= this.ns.getServerSecurityLevel(this.target)
+            )) {
+            this.initializing = false;
+        }
+        return this.initializing;
+    }
+
+    getNextBatchId() {
+        return this.nextBatchId++;
     }
 }

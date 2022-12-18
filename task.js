@@ -16,7 +16,9 @@ export class Task extends NSProcess {
         this.name = name
         this.startOrder = null;
         this.delay = 0;
+        /** @type {String} */
         this.worker = null;
+        this.expectedEndTime = null;
     }
 
     totalDuration() {
@@ -24,27 +26,8 @@ export class Task extends NSProcess {
     }
 
     execute(args) {
-        return super.execute(this.worker, this.resources.Threads, args);
-    }
-}
-
-export class MockTask extends Task {
-    /** 
-     * @param {NS} ns
-     * @param {String} target
-     * @param {Number} finishOrder 
-     * @param {any} resources
-     */
-    constructor(ns, duration, finishOrder, resources) {
-        super(ns, "home", "mock.js", duration, finishOrder, resources, "Mock")
-    }
-
-    execute(args) {
-        return super.execute([this.duration, ...args]);
-    }
-
-    expectedDuration() {
-        return this.duration;
+        super.execute(this.worker, this.resources.Threads, args);
+        this.expectedEndTime = this.startTime += this.totalDuration();
     }
 }
 

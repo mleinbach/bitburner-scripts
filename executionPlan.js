@@ -1,76 +1,52 @@
-import { HackTask, GrowTask, WeakenTask, MockTask } from "./task"
+import { Task, HackTask, GrowTask, WeakenTask } from "./task"
 import { getHackScriptRam, getGrowScriptRam, getWeakenScriptRam } from "./hgwUtilities";
 import { getGrowThreads, getHackThreads, getWeakenThreads } from "./hgwUtilities";
 import { timing } from "./config";
 import { Logger } from "./logger";
 
-export class ExecutionPlanBuilder  {
-    /** 
-     * @param {NS} ns
-     * @param {String} target
-     * @param {Number} hackAmount
-     * @returns {ExecutionPlan} executionPlan
-     */
-    static build(ns, target, hackAmount) {
-        throw new Error("Not Implemented");
-    }
-
+export class ExecutionPlanBuilder {
     /**
-     * @param {NS} ns
-     */
-    static getResourceRequirements(ns) {
-        throw new Error("Not Implemented");
-    }
-}
-
-export class MockExecutionPlanBuilder extends ExecutionPlanBuilder {
-    static build(ns, target, hackAmount) {
-        new Logger(ns, "MockExecutionPlanBuilder").debug("build()");
-        let resourceRequirements = MockExecutionPlanBuilder.getResourceRequirements(ns);
-        let plan = new ExecutionPlan(ns, resourceRequirements);
-        plan.tasks.push(new MockTask(ns, 1000, 0, resourceRequirements.Mock));
-        plan.tasks.push(new MockTask(ns, 5000, 1, resourceRequirements.Mock));
-        plan.tasks.push(new MockTask(ns, 3000, 2, resourceRequirements.Mock));
-        plan.tasks.push(new MockTask(ns, 5000, 3, resourceRequirements.Mock));
-        plan.compile();
-        return plan;
-    }
-
-    /**
-     * @param {NS} ns
-     */
-    static getResourceRequirements(ns) {
-        new Logger(ns, "MockExecutionPlanBuilder").debug("getResourceRequirements()");
-        return {
-            Mock: {
-                Threads: 1,
-                Ram: ns.getScriptRam("mock.js")
-            }
-        };
-    }
-}
-
-
-export class HWGWExecutionPlanBuilder extends ExecutionPlanBuilder {
-    static build(ns, target, hackAmount) {
-        new Logger(ns, "HWGWExcutionPlanBuilder").debug(`build(${ns}, ${target}, ${hackAmount})`);
-        let resourceRequirements = HWGWExecutionPlanBuilder.getResourceRequirements(ns, target, hackAmount);
-        let plan = new ExecutionPlan(ns, resourceRequirements);
-        plan.tasks.push(new HackTask(ns, target, 0, resourceRequirements.Hack));
-        plan.tasks.push(new WeakenTask(ns, target, 1, resourceRequirements.Weaken));
-        plan.tasks.push(new GrowTask(ns, target, 2, resourceRequirements.Grow));
-        plan.tasks.push(new WeakenTask(ns, target, 3, resourceRequirements.Weaken));
-        plan.compile();
-        return plan;
-    }
-
-    /**
+     * 
+     * @param {NS} ns 
      * @param {String} target 
      * @param {Number} hackAmount 
-     * @returns {any}
+     */
+    static build(ns, target, hackAmount) {
+        throw new Error("Not Implemented");
+    }
+
+    /**
+     * 
+     * @param {NS} ns 
+     * @param {String} target 
+     * @param {Number} hackAmount 
      */
     static getResourceRequirements(ns, target, hackAmount) {
-        new Logger(ns, "HWGWExcutionPlanBuilder").debug(`getResourceRequirements(${ns}, ${target}, ${hackAmount})`);
+        throw new Error("Not Implemented");
+    }
+}
+
+/**
+ * 
+ * @param {NS} ns 
+ * @param {String} target 
+ * @param {Number} hackAmount 
+ */
+export class HWGWExecutionPlanBuilder extends ExecutionPlanBuilder {
+    static build(ns, target, hackAmount) {
+        new Logger(ns, "HWGWExecutionPlanBuilder").trace(`build() ${ns}, ${target}, ${hackAmount}`);
+        let requirements = HWGWExecutionPlanBuilder.getResourceRequirements(ns, target, hackAmount);
+        let plan = new ExecutionPlan(ns, requirements);
+        plan.tasks.push(new HackTask(ns, target, 0, requirements.Hack));
+        plan.tasks.push(new WeakenTask(ns, target, 1, requirements.Weaken));
+        plan.tasks.push(new GrowTask(ns, target, 2, requirements.Grow));
+        plan.tasks.push(new WeakenTask(ns, target, 3, requirements.Weaken));
+        plan.compile();
+        return plan;
+    }
+
+    static getResourceRequirements(ns, target, hackAmount) {
+        new Logger(ns, "HWGWExecutionPlanBuilder").trace(`getResourceRequirements() ${ns}, ${target}, ${hackAmount}`);
         const hackThreads = getHackThreads(ns, target, hackAmount);
         const growThreads = getGrowThreads(ns, target, hackAmount);
         const weakenThreads = getWeakenThreads(ns, target, hackAmount);
@@ -96,14 +72,15 @@ export class ExecutionPlan {
     /** @param {NS} ns */
     constructor(ns, resourceRequirements) {
         this.logger = new Logger(ns, "ExecutionPlan");
-        this.logger.debug("constructor()");
+        this.logger.trace("constructor()");
         this.ns = ns;
         this.resourceRequirements = resourceRequirements;
+        /** @type {Task[]} */
         this.tasks = [];
     }
 
     compile() {
-        this.logger.debug("compile()");
+        this.logger.trace("compile()");
         var longestTask = this.tasks.reduce((x, y) => {
             if (y.duration > x.duration) {
                 return y
@@ -123,7 +100,7 @@ export class ExecutionPlan {
         for (var task of this.tasks) {
             var delay = (
                 (longestTask.duration - task.duration)
-                + (task.finishOrder * timing.batchBetweenScriptDelay))
+                + (task.finishOrder * timing.batchTaskDelay))
             // optionally: - (longest.FinishOrder * timing.batchBetweenScriptDelay)
             task.delay = delay;
         }
@@ -141,7 +118,7 @@ export class ExecutionPlan {
 
     /** @returns {Number} */
     getDuration() {
-        this.logger.debug("getDuration()");
+        this.logger.trace("getDuration()");
         return this.tasks.map((x) => x.totalDuration()).reduce((x, y) => (x - y) > 0 ? x : y);
     }
 }

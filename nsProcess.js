@@ -23,13 +23,15 @@ export class NSProcess {
         this.logger.disableNSLogs();
         this.pid = null;
         this.startTime = null;
-        this.finishTime = null;
+        this.endTime = null;
     }
 
     execute(worker, threads=1, args=[]) {
         if (this.pid === null){
             this.logger.debug(`${this.script}. ${worker}, ${threads}, ${this.id}, ${this.target} ${JSON.stringify(args)}`)
+            //this.ns.enableLog("exec");
             this.pid = this.ns.exec(this.script, worker, threads, this.id, this.target, ...args);
+            //this.ns.disableLog("exec");
             if (this.pid <= 0) {
                 throw new ExecError(`${this.script}, ${this.worker}`);
             }
@@ -41,16 +43,13 @@ export class NSProcess {
     cancel() {
         if (this.pid !== null) {
             this.ns.kill(this.pid);
-            this.finishTime = Date.now();
+            this.endTime = Date.now();
         }
     }
 
     isRunning() {
         if(this.pid > 0 && this.ns.isRunning(this.pid)){
             return true;
-        }
-        if (this.finishTime === null) {
-            this.finishTime = Date.now();
         }
         return false;
     }
