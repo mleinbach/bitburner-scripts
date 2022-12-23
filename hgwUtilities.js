@@ -1,20 +1,20 @@
 import { securityModifiers, hgwOperations } from "./constants"
-import { scripts } from "./config"
+import { hgwScripts } from "./constants"
 import { Logger } from "./logger";
 
 /** @param {NS} ns */
 export function getWeakenScriptRam(ns) {
-    return ns.getScriptRam(scripts.WeakenScript, "home");
+    return ns.getScriptRam(hgwScripts.Weaken, "home");
 }
 
 /** @param {NS} ns */
 export function getGrowScriptRam(ns) {
-    return ns.getScriptRam(scripts.GrowScript, "home");
+    return ns.getScriptRam(hgwScripts.Grow, "home");
 }
 
 /** @param {NS} ns */
 export function getHackScriptRam(ns) {
-    return ns.getScriptRam(scripts.HackScript, "home");
+    return ns.getScriptRam(hgwScripts.Hack, "home");
 }
 
 /** @param {NS} ns
@@ -50,7 +50,7 @@ export function weakenAnalyzeThreads(ns, securityAmount) {
 
 
 /** @param {NS} ns */
-export function getWeakenThreads(ns, target, hackAmount=0.10, operation = null) {
+export function getWeakenThreads(ns, target, hackAmount = 0.10, operation = null) {
     new Logger(ns, "hgwUtilities").trace(`getWeakenThreads(${ns}, ${target}, ${hackAmount}, ${operation})`);
     const hackThreads = getHackThreads(ns, target, hackAmount);
     const growThreads = getGrowThreads(ns, target, hackAmount);
@@ -87,4 +87,35 @@ export function getHackThreads(ns, target, hackAmount = 0.10) {
     const threadsNeeded = Math.max(1, Math.floor(ns.hackAnalyzeThreads(target, money)));
 
     return threadsNeeded;
+}
+
+/** @param {NS} ns */
+export function analyzeIncomeRate(ns, hostname, hackAmount) {
+    let maxMoney = ns.getServerMaxMoney(hostname);
+    let hackMoney = maxMoney * hackAmount;
+    let availableMoney = maxMoney - hackMoney;
+    let requiredHackingLevel = ns.getServerRequiredHackingLevel(hostname);
+    let minSecurityLevel = ns.getServerMinSecurityLevel(hostname);
+    let growth = ns.getServerGrowth(hostname)
+
+    let mockServer = ns.formulas.mockServer();
+    mockServer.requiredHackingSkill = requiredHackingLevel;
+    mockServer.moneyAvailable = availableMoney;
+    mockServer.hackDifficulty = minSecurityLevel;
+    mockServer.serverGrowth = growth;
+
+    const growMultiplier = (hackMoney / availableMoney) + 1
+    let player = ns.getPlayer();
+    let threads = 1;
+    while (ns.formulas.hacking.growPercent(mockServer, threads, player) < growMultiplier) {
+        threads++;
+    }
+
+    let securityIncrease = getGrowSecurity(ns, threads);
+    mockServer.hackDifficulty = minSecurityLevel + securityIncrease;
+
+    let weakenTime = ns.formulas.hacking.weakenTime(mockServer, player);
+    let incomeRate = maxMoney / weakenTime;
+
+    return incomeRate;
 }

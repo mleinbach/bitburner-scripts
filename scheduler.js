@@ -1,9 +1,10 @@
 import { getAllServers, getRoot, updateScripts } from "./utilities";
 import { Logger } from "./logger";
 import { BatchRunner } from "./batchRunner";
-import { timing } from "./config";
+import { schedulerConfig as config, timing } from "./config";
 import { EMPTY_PORT, ports } from "./constants";
 import { BatchJob } from "./job";
+import { weakenAnalyzeThreads, getWeakenScriptRam, analyzeIncomeRate } from "./hgwUtilities";
 
 /**
  * @typedef {Object} Worker
@@ -17,7 +18,7 @@ export class Scheduler {
      * @param {NS} ns
      * @param {typeof BatchRunner} batchRunnerType
      */
-    constructor(ns, batchRunnerType, enableStats) {
+    constructor(ns, batchRunnerType) {
         this.logger = new Logger(ns, "Scheduler");
         this.logger.disableNSLogs();
         this.logger.trace(`new Scheduler()`);
@@ -33,21 +34,23 @@ export class Scheduler {
         /** @type {String[]} */
         this.rootedServers = [];
         /** @type {Number} */
-        this.hackAmount = 0.10;
+        this.hackAmount = config.hackAmount;
         /** @type {String[]} */
         this.untargetedServers = [];
         /** @type {Number} */
-        this.updateInterval = 100 //ms;
+        this.updateInterval = config.updateInterval //ms;
         /** @type {BatchRunner[]} */
         this.batchRunners = [];
         /** @type {BatchRunner[]} */
         this.initializingRunners = [];
-        this.enableStats = enableStats;
-        this.statsInterval = 5000;
+        this.statsInterval = config.statsInterval;
         this.now = Date.now();
-        this.maxRunners = 5;
+        this.maxRunners = config.maxRunners;
         this.loopTimes = [];
         this.drifts = [];
+        // limit total number of batches that can run
+        // things start to get wonky after 300
+        this.maxBatches = config.maxBatches;
     }
 
     async run() {
@@ -109,8 +112,26 @@ export class Scheduler {
         // by required hacking level > 1/3 player hacking skill
         // then by max money
         // then by growth
+        let targets = [];
+        if (this.ns.fileExists("Formulas.exe")) {
+            targets = this.getTargetsFormula();
+        } else {
+            targets = this.getTargets();
+        }
+
+        this.untargetedServers = targets.filter((s) => this.batchRunners.findIndex((x) => x.target === s) === -1);
+
+        // if we found some better targets than what we're currently hacking, reallocate runners.
+        if (this.untargetedServers.length > 0 && this.batchRunners.length === this.maxRunners) {
+            let removeRunners = this.batchRunners.filter((r) => targets.findIndex((t) => t === r.target) === -1);
+            removeRunners.forEach((r) => r.cancelJobs());
+            this.batchRunners = this.batchRunners.filter((r) => targets.findIndex((t) => t === r.target) !== -1);
+        }
+    }
+
+    getTargets() {
         let hacking = this.ns.getPlayer().skills.hacking;
-        let targets = this.rootedServers.map((s) => {
+        return this.rootedServers.map((s) => {
             let hackingRatio = Math.min(3, hacking / this.ns.getServerRequiredHackingLevel(s));
             return {
                 hostname: s,
@@ -128,15 +149,36 @@ export class Scheduler {
         ).sort((a, b) => b.hackingRatio - a.hackingRatio
         ).map((s) => s.hostname
         ).slice(0, this.maxRunners);
+    }
 
-        this.untargetedServers = targets.filter((s) => this.batchRunners.findIndex((x) => x.target === s) === -1);
+    getTargetsFormula() {
+        let targets = [];
+        let hackableServers = this.rootedServers.map((s) => {
+            return {
+                hostname: s,
+                maxMoney: this.ns.getServerMaxMoney(s),
+                growth: this.ns.getServerGrowth(s),
+                requiredHackingLevel: this.ns.getServerRequiredHackingLevel(s),
+                minHackDifficulty: this.ns.getServerMinSecurityLevel(s)
+            };
+        }).filter((s) => !(
+            s.hostname.startsWith("pserv")
+            || s.hostname === "home"
+            || s.maxMoney <= 0
+            || s.hackingRatio <= 0));
 
-        // if we found some better targets than what we're currently hacking, reallocate runners.
-        if (this.untargetedServers.length > 0 && this.batchRunners.length === this.maxRunners) {
-            let removeRunners = this.batchRunners.filter((r) => targets.findIndex((t) => t === r.target) === -1);
-            removeRunners.forEach((r) => r.cancelJobs());
-            this.batchRunners = this.batchRunners.filter((r) => targets.findIndex((t) => t === r.target) !== -1);
+        for (let server of hackableServers) {
+            let incomeRate = analyzeIncomeRate(this.ns, server.hostname, this.hackAmount);
+
+            targets.push({
+                hostname: server.hostname,
+                incomeRate: incomeRate
+            });
         }
+
+        return targets.sort((a, b) => b.incomeRate - a.incomeRate
+        ).slice(0, this.maxRunners
+        ).map((s) => s.hostname);
     }
 
 
@@ -161,8 +203,6 @@ export class Scheduler {
 
             this.batchRunners[ix].updateBatchStatus(portData);
         }
-
-
 
         for (let runner of this.initializingRunners) {
             if (runner.initializing) {
@@ -197,6 +237,7 @@ export class Scheduler {
                 runner.updateBatches();
 
                 // create new job
+
                 this.startNewBatch(runner);
             }
         }
@@ -205,7 +246,9 @@ export class Scheduler {
     /** @param {BatchRunner} runner */
     startNewBatch(runner, hackAmount = null) {
         this.logger.trace(`startNewBatch(): ${runner.target} ${runner.timeSinceLastBatch} ${runner.batches.length}`);
-        if (runner.getTimeSinceLastBatch() < timing.newBatchDelay || runner.batches.length >= runner.maxBatches) {
+        if (runner.getTimeSinceLastBatch() < timing.newBatchDelay
+            || runner.batches.length >= runner.maxBatches
+            || this.getTotalBatches() >= this.maxBatches) {
             return
         }
 
@@ -213,6 +256,19 @@ export class Scheduler {
         // run only gw part of plan if initializing
         if (runner.initializing) {
             executionPlan.tasks = executionPlan.tasks.filter((t) => t.finishOrder > 1);
+            // Total cludge, but if the security level of the server doesn't start out at min
+            // then we'll kinda get stuck at a random security level because of how execution plan
+            // is calculating weaken threads based on grow amount.
+            // Add threads needed to mitigate growth security increase to the amount of threads
+            // needed to weaken security to min from current level.
+            let currentWeakenThreads = executionPlan.tasks[0].resources.Threads
+
+            let weakenAmount = this.ns.getServerSecurityLevel(runner.target) - this.ns.getServerMinSecurityLevel(runner.target);
+            let weakenThreads = weakenAnalyzeThreads(this.ns, weakenAmount);
+            executionPlan.tasks[0].resources = {
+                Threads: (weakenThreads + currentWeakenThreads),
+                Ram: getWeakenScriptRam(this.ns) * (weakenThreads + currentWeakenThreads)
+            };
         }
 
         // try to reserve resources
@@ -239,13 +295,14 @@ export class Scheduler {
         this.logger.trace(`initializeBatchRunnerTarget(): ${runner.target}`);
         runner.initializing = true;
         this.initializingRunners.push(runner);
+        if (runner.checkTargetInitialization()) {
+            // hack amount is different upon initilization
+            let maxMoney = this.ns.getServerMoneyAvailable(runner.target);
+            let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(runner.target));
+            hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
 
-        // hack amount is different upon initilization
-        let maxMoney = this.ns.getServerMoneyAvailable(runner.target);
-        let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(runner.target));
-        hackAmount = Math.ceil((hackAmount + Number.EPSILON) * 100) / 100;
-
-        this.startNewBatch(runner, hackAmount);
+            this.startNewBatch(runner, hackAmount);
+        }
     }
 
     /** @param {BatchJob} job */
@@ -288,14 +345,14 @@ export class Scheduler {
         }
     }
 
-displayStatistics() {
+    displayStatistics() {
         const [dollarsPerSec, dollarsSinceAug] = this.ns.getTotalScriptIncome();
         const expGain = this.ns.getTotalScriptExpGain();
 
         const avgUpdateTime = this.loopTimes.reduce((p, c) => p + c, 0) / this.loopTimes.length;
         const maxDrift = this.drifts.reduce((p, c) => c - p > 0 ? c : p);
         const totalDrift = this.drifts.reduce((p, c) => p + c, 0);
-        const avgDrift =  totalDrift / this.drifts.length;
+        const avgDrift = totalDrift / this.drifts.length;
         this.loopTimes = [];
         this.drifts = [];
 
@@ -330,5 +387,10 @@ displayStatistics() {
         });
 
         this.logger.info(`Batcher Stats: ${JSON.stringify(stats, null, 2)}`);
+    }
+
+
+    getTotalBatches() {
+        return this.batchRunners.map((b) => b.batches.length).reduce((p, c) => p + c);
     }
 }

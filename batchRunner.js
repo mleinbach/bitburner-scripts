@@ -27,7 +27,7 @@ export class BatchRunner {
         this.needsReset = false;
         this.initializing = false;
         this.now = Date.now();
-        this.timeSinceLastBatch = 0;
+        this.timeSinceLastBatch = timing.newBatchDelay + 1;
         /** @type {BatchJob} */
         this.lastBatch = null;
         this.nextBatchId = 0;
@@ -115,6 +115,13 @@ export class BatchRunner {
         }
 
         let batch = this.batches[ix];
+        // task self-terminated, cancel job
+        if (portData.terminated) {
+            batch.cancel();
+            this.logger.warn(`canceling batch ${batch.id}, reason: ${portData.reason}`);
+            return;
+        }
+
         let task = batch.getTask(portData.id);
         task.startTime = portData.startTime;
         task.endTime = portData.endTime;
@@ -131,7 +138,7 @@ export class BatchRunner {
             } else {
                 let lastBatchEndTime = this.lastBatch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y >= 0 ? x : y);
                 let firstTaskEndTime = batch.executionPlan.tasks.map((t) => t.endTime).reduce((x, y) => x - y <= 0 ? x : y);
-                if (lastBatchEndTime < firstTaskEndTime) {
+                if (lastBatchEndTime <= firstTaskEndTime) {
                     //this.logger.success(`batch ${batch.id} succeeded`);
                     this.lastBatch = batch;
                     this.checkTargetInitialization();
