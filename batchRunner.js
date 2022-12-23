@@ -118,7 +118,8 @@ export class BatchRunner {
         // task self-terminated, cancel job
         if (portData.terminated) {
             batch.cancel();
-            this.logger.warn(`canceling batch ${batch.id}, reason: ${portData.reason}`);
+            //this.logger.warn(`canceling batch ${batch.id}, reason: ${portData.reason}`);
+            this.cancelledBatches++;
             return;
         }
 
@@ -129,6 +130,17 @@ export class BatchRunner {
         let status = batch.getStatus();
         if (status === BatchJobStatus.failed) {
             this.logger.error(`tasks ran out of order`);
+            const batchTasks = batch.executionPlan.tasks.map((t) => {
+                return {
+                    name: t.name,
+                    startTime:new Date(t.startTime).toISOString(),
+                    endTime:new Date(t.endTime).toISOString(),
+                    expectedEndTime: new Date(t.expectedEndTime).toISOString(),
+                    delay: t.delay,
+                    duration: t.duration
+                }
+            });
+            this.logger.info(`batchTasks=${JSON.stringify(batchTasks, null, 2)}`);
             this.failedBatches++;
             this.needsReset = true;
         } else if (status === BatchJobStatus.success) {
@@ -147,16 +159,22 @@ export class BatchRunner {
                     this.logger.error(`batches ran out of order: lastBatchId=${this.lastBatch.id} lastBatchEndTime=${lastBatchEndTime}, currentBatchId=${batch.id} firstTaskEndTime=${firstTaskEndTime}`);
                     const lastBatchTasks = this.lastBatch.executionPlan.tasks.map((t) => {
                         return {
+                            name: t.name,
                             startTime:new Date(t.startTime).toISOString(),
                             endTime:new Date(t.endTime).toISOString(),
-                            expectedEndTime: new Date(t.expectedEndTime).toISOString()
+                            expectedEndTime: new Date(t.expectedEndTime).toISOString(),
+                            delay: t.delay,
+                            duration: t.duration
                         }
                     });
                     const currentBatchTasks = batch.executionPlan.tasks.map((t) => {
                         return {
+                            name: t.name,
                             startTime:new Date(t.startTime).toISOString(),
                             endTime:new Date(t.endTime).toISOString(),
-                            expectedEndTime: new Date(t.expectedEndTime).toISOString()
+                            expectedEndTime: new Date(t.expectedEndTime).toISOString(),
+                            delay: t.delay,
+                            duration: t.duration
                         }
                     });
                     this.logger.info(`lastBatchTasks=${JSON.stringify(lastBatchTasks, null, 2)}`);
