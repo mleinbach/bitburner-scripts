@@ -6,22 +6,15 @@ import { Logger } from "./logger";
 export async function main(ns) {
     let logger = new Logger(ns, "schedulerService");
     logger.disableNSLogs();
-    let [tail = null, enableStats = null] = ns.args;
+    let [tail = null, ] = ns.args;
 
     if (tail !== null) {
         ns.tail();
     }
 
-    if (enableStats !== null) {
-        enableStats = true;
-    }
-    else {
-        enableStats = false;
-    }
-
     try {
         logger.info("Scheduler running.")
-        await new Scheduler(ns, BatchRunner, enableStats).run();
+        await new Scheduler(ns, BatchRunner).run();
     } catch (e) {
         logger.error(`Unhandled exception occurred:\n${e.stack}`)
     }
