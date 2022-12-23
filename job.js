@@ -66,12 +66,11 @@ export class BatchJob {
             return this.status;
         }
 
-        let finishOrderRanks = this.executionPlan.tasks.sort(
-            (x, y) => x.finishOrder - y.finishOrder).map((_t, ix) => ix);
+        // get finish order rank because sometimes we modify the tasks array, so the following check will fail if using just finish order
         let endTimeRanks = this.executionPlan.tasks.sort(
-            (x, y) => x.endTime - y.endTime).map((_t, ix) => ix);
+            (x, y) => x.finishOrder - y.finishOrder).map((t, ix) => {return {endTime: t.endTime, finishOrderRank: ix}});
 
-        let success = finishOrderRanks.every((x, ix) => x === endTimeRanks[ix]);
+        let success = endTimeRanks.sort((x, y) => x.endTime - y.endTime).every((x, ix) => x.finishOrderRank === ix);
         this.status = success ? BatchJobStatus.success : BatchJobStatus.failed;
         this.endTime = this.executionPlan.tasks[this.executionPlan.tasks.length - 1].endTime;
         return this.status;
