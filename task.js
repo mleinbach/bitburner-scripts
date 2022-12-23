@@ -27,7 +27,7 @@ export class Task extends NSProcess {
 
     execute(args) {
         super.execute(this.worker, this.resources.Threads, args);
-        this.expectedEndTime = this.startTime += this.totalDuration();
+        this.expectedEndTime = this.startTime + this.totalDuration();
     }
 }
 
@@ -39,8 +39,17 @@ export class HackTask extends Task {
      * @param {any} resources
      */
     constructor(ns, target, finishOrder, resources) {
-        let duration = Math.floor(ns.getHackTime(target));
-        //let duration = ns.getHackTime(target);
+        // let duration = 0;
+        // if (this.ns.fileExists("Formulas.exe")) {
+        //     let server = this.ns.getServer(this.target);
+        //     let player = this.ns.getPlayer();
+        //     server.hackDifficulty = server.minDifficulty;
+        //     duration = this.ns.formulas.hacking.hackTime(server, player)
+        // } else {
+        //     duration = Math.floor(ns.getHackTime(target));
+        // }
+        let duration = ns.getHackTime(target);
+        
         super(ns, target, hgwScripts.Hack, duration, finishOrder, resources, "Hack");
     }
 
@@ -57,8 +66,17 @@ export class GrowTask extends Task {
      * @param {any} resources
      */
     constructor(ns, target, finishOrder, resources) {
-        let duration = Math.floor(ns.getGrowTime(target));
-        //let duration = ns.getGrowTime(target);
+        // let duration = 0;
+        // if (this.ns.fileExists("Formulas.exe")) {
+        //     let server = this.ns.getServer(this.target);
+        //     let player = this.ns.getPlayer();
+        //     server.hackDifficulty = server.minDifficulty;
+        //     duration = this.ns.formulas.hacking.growTime(server, player)
+        // } else {
+        //     duration = Math.floor(ns.getGrowTime(target));
+        // }
+        let duration = ns.getGrowTime(target);
+
         super(ns, target, hgwScripts.Grow, duration, finishOrder, resources, "Grow")
     }
 
@@ -75,9 +93,19 @@ export class WeakenTask extends Task {
      * @param {any} resources
      */
     constructor(ns, target, finishOrder, resources) {
-        let duration = Math.floor(ns.getWeakenTime(target));
-        //let duration = ns.getWeakenTime(target);
-        super(ns, target, hgwScripts.Weaken, duration, finishOrder, resources, "Weaken")
+        // let duration = 0;
+        // if (this.ns.fileExists("Formulas.exe")) {
+        //     let server = this.ns.getServer(this.target);
+        //     let player = this.ns.getPlayer();
+        //     server.hackDifficulty = server.minDifficulty;
+        //     duration = this.ns.formulas.hacking.weakenTime(server, player)
+        // } else {
+        //     duration = Math.floor(ns.getWeakenTime(target));
+        // }
+
+        let duration = ns.getWeakenTime(target);
+
+        super(ns, target, hgwScripts.Weaken, duration, finishOrder, resources, "Weaken");
     }
 
     expectedDuration() {
