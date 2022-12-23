@@ -1,6 +1,6 @@
 export const timing = {
     batchTaskDelay: 100,
-    newBatchDelay: 300
+    newBatchDelay: 400
 };
 
 export const verbosity = 3;
