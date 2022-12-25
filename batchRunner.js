@@ -3,6 +3,7 @@ import { ExecutionPlan } from "./executionPlan";
 import { BatchJob, BatchJobStatus } from "./job";
 import { Logger } from "./logger";
 import { timing } from "./config";
+import { HGWOperations, RunnerStages, TaskStatus } from "./constants";
 
 export class BatchRunner {
     /**
@@ -24,6 +25,7 @@ export class BatchRunner {
         this.hackAmount = hackAmount;
         /** @type {BatchJob[]} */
         this.batches = [];
+        this.stage = RunnerStages.INITIALIZING;
         this.needsReset = false;
         this.initializing = false;
         this.now = Date.now();
@@ -31,9 +33,11 @@ export class BatchRunner {
         /** @type {BatchJob} */
         this.lastBatch = null;
         this.nextBatchId = 0;
+        this.runId = 0;
         this.succeededBatches = 0;
         this.failedBatches = 0;
         this.cancelledBatches = 0;
+        this.hackingLevel = this.ns.getHackingLevel();
     }
 
     getTimeSinceLastBatch() {
@@ -76,6 +80,12 @@ export class BatchRunner {
         return HWGWExecutionPlanBuilder.build(this.ns, this.target, hackAmount);
     }
 
+    getInitializeExecutionPlan(hackAmount = null) {
+        this.logger.trace(`getExecutionPlan() ${hackAmount}`);
+        hackAmount = hackAmount !== null ? hackAmount : this.hackAmount;
+        return HWGWExecutionPlanBuilder.buildInitializePlan(this.ns, this.target, hackAmount);
+    }
+
     updateBatches() {
         this.batches = this.batches.filter((b) =>
             (b.getStatus() === BatchJobStatus.running)
@@ -91,41 +101,74 @@ export class BatchRunner {
         return this.batches.filter((b) =>
             (b.getStatus() === BatchJobStatus.failed)
             || (b.getStatus() === BatchJobStatus.success)
-            || (b.getStatus() === BatchJobStatus.canceled));
+            || (b.getStatus() === BatchJobStatus.cancelled));
     }
 
     checkBatchEstimatedTimes() {
         let ix = this.batches.findIndex((b) => !b.isOnSchedule());
         // batch is running behind, cancel batch that ran after this one.
-        if (ix >= 0 && this.batches.length > ix+1) {
+        if (ix >= 0 && this.batches.length > ix + 1) {
             this.logger.warn(`Batch ${this.batches[ix].id} is behind schedule (drift=${this.batches[ix].drift}), cancelling next job.`);
-            this.batches[ix+1].cancel();
+            this.batches[ix + 1].cancel();
             this.cancelledBatches++;
             this.updateBatches();
         }
     }
 
+    cancelHackLevelUpBatch() {
+        // Mitigate case where a batch that was started at a lower hacking level
+        // will execute and complete the hack task at a higher level prior to
+        // the previous batch fully completing.
+        // Batch 1  ---HH------- 
+        //          WWWWWW------
+        //          --GGGGG-----
+        //          -WWWWWWW----
+        // Level Up ------^-----
+        // Batch 2  -------H*--- 
+        //          ----WWWWWW--
+        //          ------GGGGG-
+        //          -----WWWWWWW
+        // - -> sleep
+        // * -> execution time shortened due to level up during sleep
+        const hackingLevel = this.ns.getHackingLevel();
+        if (hackingLevel > this.hackingLevel) {
+            this.logger.info(`Level up detected`);
+            this.hackingLevel = hackingLevel;
+            let waitingBatches = this.batches.filter((b) => {
+                const ix = b.executionPlan.tasks.findIndex((t) => t.name === HGWOperations.HACK);
+                if (ix < 0) {
+                    return false;
+                }
+                return b.executionPlan.tasks[ix].status === TaskStatus.WAITING;
+            });
+
+            this.logger.info(`Waiting batches ${waitingBatches.length}`);
+
+            if (waitingBatches.length > 0) {
+                let newest = waitingBatches.reduce((p, c) => p.startTime > c.startTime ? p : c);
+
+                this.logger.warn(`cancelling level up batch id=${newest.id}`);
+                newest.cancel();
+                this.cancelledBatches++;
+            }
+        }
+    }
+
     updateBatchStatus(portData) {
         this.logger.trace(`updateBatch() - portData=${JSON.stringify(portData)}`)
-
-        let ix = this.batches.findIndex((x) => x.id === portData.batchId);
+        let ix = this.batches.findIndex((x) => {return x.id === portData.batchId});
         if (ix < 0) {
             this.logger.warn(`recieved task data for unknown batch`);
             return;
         }
 
         let batch = this.batches[ix];
-        // task self-terminated, cancel job
-        if (portData.terminated) {
-            batch.cancel();
-            //this.logger.warn(`canceling batch ${batch.id}, reason: ${portData.reason}`);
-            this.cancelledBatches++;
-            return;
-        }
-
         let task = batch.getTask(portData.id);
         task.startTime = portData.startTime;
         task.endTime = portData.endTime;
+        task.executeTime = portData.executeTime;
+        task.status = portData.status;
+        task.executeSecurity = portData.executeSecurity;
 
         let status = batch.getStatus();
         if (status === BatchJobStatus.failed) {
@@ -133,16 +176,18 @@ export class BatchRunner {
             const batchTasks = batch.executionPlan.tasks.map((t) => {
                 return {
                     name: t.name,
-                    startTime:new Date(t.startTime).toISOString(),
-                    endTime:new Date(t.endTime).toISOString(),
+                    startTime: new Date(t.startTime).toISOString(),
+                    executeTime: new Date(t.executeTime).toISOString(),
+                    endTime: new Date(t.endTime).toISOString(),
                     expectedEndTime: new Date(t.expectedEndTime).toISOString(),
                     delay: t.delay,
-                    duration: t.duration
+                    duration: t.duration,
+                    executeSecurity: t.executeSecurity
                 }
             });
             this.logger.info(`batchTasks=${JSON.stringify(batchTasks, null, 2)}`);
             this.failedBatches++;
-            this.needsReset = true;
+            this.stage = RunnerStages.FAILED;
         } else if (status === BatchJobStatus.success) {
             if (this.lastBatch === null) {
                 this.lastBatch = batch;
@@ -153,52 +198,49 @@ export class BatchRunner {
                 if (lastBatchEndTime <= firstTaskEndTime) {
                     //this.logger.success(`batch ${batch.id} succeeded`);
                     this.lastBatch = batch;
-                    this.checkTargetInitialization();
                     this.succeededBatches++;
                 } else {
                     this.logger.error(`batches ran out of order: lastBatchId=${this.lastBatch.id} lastBatchEndTime=${lastBatchEndTime}, currentBatchId=${batch.id} firstTaskEndTime=${firstTaskEndTime}`);
                     const lastBatchTasks = this.lastBatch.executionPlan.tasks.map((t) => {
                         return {
                             name: t.name,
-                            startTime:new Date(t.startTime).toISOString(),
-                            endTime:new Date(t.endTime).toISOString(),
+                            startTime: new Date(t.startTime).toISOString(),
+                            executeTime: new Date(t.executeTime).toISOString(),
+                            endTime: new Date(t.endTime).toISOString(),
                             expectedEndTime: new Date(t.expectedEndTime).toISOString(),
                             delay: t.delay,
-                            duration: t.duration
+                            duration: t.duration,
+                            executeSecurity: t.executeSecurity
                         }
                     });
                     const currentBatchTasks = batch.executionPlan.tasks.map((t) => {
                         return {
                             name: t.name,
-                            startTime:new Date(t.startTime).toISOString(),
-                            endTime:new Date(t.endTime).toISOString(),
+                            startTime: new Date(t.startTime).toISOString(),
+                            executeTime: new Date(t.executeTime).toISOString(),
+                            endTime: new Date(t.endTime).toISOString(),
                             expectedEndTime: new Date(t.expectedEndTime).toISOString(),
                             delay: t.delay,
-                            duration: t.duration
+                            duration: t.duration,
+                            executeSecurity: t.executeSecurity
                         }
                     });
                     this.logger.info(`lastBatchTasks=${JSON.stringify(lastBatchTasks, null, 2)}`);
                     this.logger.info(`currentBatchTasks=${JSON.stringify(currentBatchTasks, null, 2)}`);
                     this.failedBatches++;
-                    this.needsReset = true;
+                    this.stage = RunnerStages.FAILED;
                 }
             }
+        } else if (status === BatchJobStatus.cancelled) {
+            this.logger.warn(`cancelled batch ${batch.id}, reason: ${portData.reason}`);
+            batch.cancel();
+            this.cancelledBatches++;
         }
     }
 
-    checkTargetStatus() {
+    isTargetInitialized() {
         return this.ns.getServerMaxMoney(this.target) <= this.ns.getServerMoneyAvailable(this.target)
-            || this.ns.getServerMinSecurityLevel(this.target) >= this.ns.getServerSecurityLevel(this.target);
-    }
-
-    checkTargetInitialization() {
-        if (this.initializing
-            && (this.ns.getServerMaxMoney(this.target) <= this.ns.getServerMoneyAvailable(this.target)
-                || this.ns.getServerMinSecurityLevel(this.target) >= this.ns.getServerSecurityLevel(this.target)
-            )) {
-            this.initializing = false;
-        }
-        return this.initializing;
+            && this.ns.getServerMinSecurityLevel(this.target) >= this.ns.getServerSecurityLevel(this.target);
     }
 
     getNextBatchId() {

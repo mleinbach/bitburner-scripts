@@ -23,6 +23,7 @@ export class NSProcess {
         this.logger.disableNSLogs();
         this.pid = null;
         this.startTime = null;
+        this.executeTime = null;
         this.endTime = null;
     }
 

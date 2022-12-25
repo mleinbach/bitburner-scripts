@@ -4,17 +4,31 @@ export const securityModifiers = {
     "grow": 0.004
 };
 
-export const hgwOperations = {
-    Hack: "Hack",
-    Grow: "Grow",
-    WeakenGrow: "WeakenGrow",
-    WeakenHack: "WeakenHack"
+export const HGWOperations = {
+    HACK: "Hack",
+    GROW: "Grow",
+    WEAKEN: "Weaken"
 }
 
-export const hgwScripts = {
-    Hack: "hack.js",
-    Grow: "grow.js",
-    Weaken: "weaken.js",
+export const HGWScripts = {
+    HACK: "hack.js",
+    GROW: "grow.js",
+    WEAKEN: "weaken.js",
+}
+
+export const TaskStatus = {
+    WAITING: "WAITING",
+    EXECUTING: "EXECUTING",
+    COMPLETED: "COMPLETED",
+    CANCELLED: "CANCELLED"
+}
+
+export const RunnerStages = {
+    INITIALIZING: "INITIALIZING",
+    QUEUEING: "QUEUEING",
+    RUNNING: "RUNNING",
+    COMPLETED: "COMPLETED",
+    FAILED: "FAILED"
 }
 
 export const EMPTY_PORT = "NULL PORT DATA"

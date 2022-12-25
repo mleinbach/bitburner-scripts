@@ -2,7 +2,7 @@ import { getAllServers, getRoot, updateScripts } from "./utilities";
 import { Logger } from "./logger";
 import { BatchRunner } from "./batchRunner";
 import { schedulerConfig as config, timing } from "./config";
-import { EMPTY_PORT, ports } from "./constants";
+import { EMPTY_PORT, ports, RunnerStages } from "./constants";
 import { BatchJob } from "./job";
 import { weakenAnalyzeThreads, getWeakenScriptRam, analyzeIncomeRate } from "./hgwUtilities";
 
@@ -42,7 +42,6 @@ export class Scheduler {
         /** @type {BatchRunner[]} */
         this.batchRunners = [];
         /** @type {BatchRunner[]} */
-        this.initializingRunners = [];
         this.statsInterval = config.statsInterval;
         this.now = Date.now();
         this.maxRunners = config.maxRunners;
@@ -185,6 +184,7 @@ export class Scheduler {
     updateBatchRunners() {
         this.logger.trace("updateBatchRunners()");
 
+        this.batchRunners.forEach((r) => r.cancelHackLevelUpBatch());
         // check batch tasks expected end time for drift > tolerance.
         this.batchRunners.forEach((r) => r.checkBatchEstimatedTimes());
 
@@ -204,41 +204,43 @@ export class Scheduler {
             this.batchRunners[ix].updateBatchStatus(portData);
         }
 
-        for (let runner of this.initializingRunners) {
-            if (runner.initializing) {
-                continue;
-            }
-
-            let executionPlan = runner.getExecutionPlan();
-            let maxBatches = Math.floor(executionPlan.getDuration() / (4 * timing.batchTaskDelay));
-            runner.maxBatches = maxBatches;
-        }
-
-        this.initializingRunners = this.initializingRunners.filter((r) => r.initializing);
-
         for (let runner of this.batchRunners) {
             let zombieBatches = runner.getZombieBatches();
             if (zombieBatches.length > 0) {
-                runner.needsReset = true;
+                this.logger.warn(`Zombie batches detected, resetting.`);
+                runner.stage = RunnerStages.FAILED;
             }
-            if (runner.needsReset) {
+            if (runner.stage === RunnerStages.FAILED) {
                 // reinitialize
                 runner.cancelJobs();
                 runner.batches.forEach((j) => this.releaseWorkers(j));
                 runner.reset();
                 runner.maxBatches = 1;
                 this.initializeBatchRunnerTarget(runner);
-            } else {
+            } else if (runner.stage === RunnerStages.RUNNING) {
                 // release workers for finished jobs
                 let completedBatches = runner.getCompletedBatches();
                 completedBatches.forEach((j) => this.releaseWorkers(j));
-
                 // clear finished jobs
                 runner.updateBatches();
-
+                if (runner.batches.length === 0) {
+                    runner.stage = RunnerStages.COMPLETED;
+                }
+            } else if (runner.stage === RunnerStages.QUEUEING) {
                 // create new job
-
                 this.startNewBatch(runner);
+            } else if (runner.stage === RunnerStages.COMPLETED) {
+                // create new job
+                runner.stage = RunnerStages.QUEUEING;
+                this.startNewBatch(runner);
+            } else if (runner.stage === RunnerStages.INITIALIZING) {
+                if(!runner.isTargetInitialized()) {
+                    continue;
+                }
+                let executionPlan = runner.getExecutionPlan();
+                let maxBatches = Math.floor(executionPlan.getDuration() / (4 * timing.batchTaskDelay));
+                runner.maxBatches = maxBatches;
+                runner.stage = RunnerStages.QUEUEING;
             }
         }
     }
@@ -246,29 +248,18 @@ export class Scheduler {
     /** @param {BatchRunner} runner */
     startNewBatch(runner, hackAmount = null) {
         this.logger.trace(`startNewBatch(): ${runner.target} ${runner.timeSinceLastBatch} ${runner.batches.length}`);
-        if (runner.getTimeSinceLastBatch() < timing.newBatchDelay
-            || runner.batches.length >= runner.maxBatches
-            || this.getTotalBatches() >= this.maxBatches) {
-            return
+        if (runner.batches.length >= runner.maxBatches || this.getTotalBatches() >= this.maxBatches) {
+            runner.stage = RunnerStages.RUNNING;
+            return;
+        }
+
+        if (runner.getTimeSinceLastBatch() < timing.newBatchDelay) {
+            return;
         }
 
         let executionPlan = runner.getExecutionPlan(hackAmount);
-        // run only gw part of plan if initializing
-        if (runner.initializing) {
-            executionPlan.tasks = executionPlan.tasks.filter((t) => t.finishOrder > 1);
-            // Total cludge, but if the security level of the server doesn't start out at min
-            // then we'll kinda get stuck at a random security level because of how execution plan
-            // is calculating weaken threads based on grow amount.
-            // Add threads needed to mitigate growth security increase to the amount of threads
-            // needed to weaken security to min from current level.
-            let currentWeakenThreads = executionPlan.tasks[0].resources.Threads
-
-            let weakenAmount = this.ns.getServerSecurityLevel(runner.target) - this.ns.getServerMinSecurityLevel(runner.target);
-            let weakenThreads = weakenAnalyzeThreads(this.ns, weakenAmount);
-            executionPlan.tasks[0].resources = {
-                Threads: (weakenThreads + currentWeakenThreads),
-                Ram: getWeakenScriptRam(this.ns) * (weakenThreads + currentWeakenThreads)
-            };
+        if (runner.stage === RunnerStages.INITIALIZING) {
+            executionPlan = runner.getInitializeExecutionPlan(hackAmount);
         }
 
         // try to reserve resources
@@ -293,9 +284,8 @@ export class Scheduler {
     /** @param {BatchRunner} runner */
     initializeBatchRunnerTarget(runner) {
         this.logger.trace(`initializeBatchRunnerTarget(): ${runner.target}`);
-        runner.initializing = true;
-        this.initializingRunners.push(runner);
-        if (runner.checkTargetInitialization()) {
+        runner.stage = RunnerStages.INITIALIZING;
+        if (!runner.isTargetInitialized()) {
             // hack amount is different upon initilization
             let maxMoney = this.ns.getServerMoneyAvailable(runner.target);
             let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(runner.target));
@@ -373,6 +363,7 @@ export class Scheduler {
         this.batchRunners.map((r) => {
             return {
                 target: r.target,
+                stage: r.stage,
                 running: r.batches.length,
                 succeeded: r.succeededBatches,
                 failed: r.failedBatches,

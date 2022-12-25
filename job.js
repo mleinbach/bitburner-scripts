@@ -1,13 +1,13 @@
 import { ExecutionPlan } from "./executionPlan";
 import { Logger } from "./logger";
 import { ExecError } from "./nsProcess";
-import { ports } from "./constants";
+import { ports, TaskStatus } from "./constants";
 import { timing } from "./config";
 
 export class BatchJobStatus {
     static running = "RUNNING";
     static notStarted = "NOTSTARTED";
-    static canceled = "CANCELED";
+    static cancelled = "CANCELED";
     static failed = "FAILED";
     static success = "SUCCESS";
 
@@ -33,13 +33,14 @@ export class BatchJob {
         this.logger = new Logger(this.ns, `BatchJob-${this.target}-${this.id}`);
 
         this.status = BatchJobStatus.notStarted;
+        this.hackingLevel = this.ns.getHackingLevel();
     }
 
     run() {
         this.logger.trace(`run()`);
         this.executionPlan.tasks.sort((x, y) => x.startOrder - y.startOrder);
         try {
-            this.executionPlan.tasks.forEach((x) => x.execute([x.delay, this.id, ports.BATCH_STATUS]));
+            this.executionPlan.tasks.forEach((x) => x.execute([x.delay, x.duration, this.id, ports.BATCH_STATUS]));
             this.status = BatchJobStatus.running;
             this.startTime = Date.now();
             this.expectedEndTime = this.startTime + this.getBatchDuration();
@@ -54,16 +55,20 @@ export class BatchJob {
     cancel() {
         this.logger.trace(`cancel()`);
         this.executionPlan.tasks.forEach((x) => x.cancel());
-        this.status = BatchJobStatus.canceled;
+        this.status = BatchJobStatus.cancelled;
         this.endTime = Date.now();
     }
 
     getStatus() {
         this.logger.trace(`getStatus()`);
-        if (this.status === BatchJobStatus.running
-            && this.executionPlan.tasks.some((t) => t.endTime === null)
-        ) {
-            return this.status;
+        if (this.status === BatchJobStatus.running) {
+            if (this.executionPlan.tasks.some((t) => t.status === TaskStatus.CANCELLED)) {
+                this.status = BatchJobStatus.cancelled;
+                return this.status;
+            }
+            if(this.executionPlan.tasks.some((t) => t.status !== TaskStatus.COMPLETED)) {
+                return this.status;
+            }  
         }
 
         // get finish order rank because sometimes we modify the tasks array, so the following check will fail if using just finish order

@@ -1,11 +1,11 @@
-import { hgwScripts} from "./constants.js"
+import { HGWScripts} from "./constants.js"
 import { Logger } from "./logger.js";
 
 export function getOperationScript(operation) {
     if (operation.startsWith("Weaken")) {
-        return hgwScripts.Weaken;
+        return HGWScripts.WEAKEN;
     }
-    return hgwScripts[operation]
+    return HGWScripts[operation]
 }
 
 /** @param {NS} ns */
@@ -69,7 +69,7 @@ export function getAllServers(ns) {
 
 export function updateScripts(ns) {
     var servers = getAllRootedServers(ns);
-    var scripts = ["weaken.js", "grow.js", "hack.js", "mock.js"]
+    var scripts = ["constants.js", "scratch.js", "weaken.js", "grow.js", "hack.js", "mock.js"]
 
     for (var server of servers) {
         for (var script of scripts) {
