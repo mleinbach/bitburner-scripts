@@ -6,11 +6,6 @@ import { Logger } from "./logger";
 export async function main(ns) {
     let logger = new Logger(ns, "schedulerService");
     logger.disableNSLogs();
-    let [tail = null, ] = ns.args;
-
-    if (tail !== null) {
-        ns.tail();
-    }
 
     try {
         logger.info("Scheduler running.")

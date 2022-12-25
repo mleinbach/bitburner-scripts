@@ -1,20 +1,20 @@
-import { securityModifiers, hgwOperations } from "./constants"
-import { hgwScripts } from "./constants"
+import { securityModifiers, HGWOperations } from "./constants"
+import { HGWScripts } from "./constants"
 import { Logger } from "./logger";
 
 /** @param {NS} ns */
 export function getWeakenScriptRam(ns) {
-    return ns.getScriptRam(hgwScripts.Weaken, "home");
+    return ns.getScriptRam(HGWScripts.WEAKEN, "home");
 }
 
 /** @param {NS} ns */
 export function getGrowScriptRam(ns) {
-    return ns.getScriptRam(hgwScripts.Grow, "home");
+    return ns.getScriptRam(HGWScripts.GROW, "home");
 }
 
 /** @param {NS} ns */
 export function getHackScriptRam(ns) {
-    return ns.getScriptRam(hgwScripts.Hack, "home");
+    return ns.getScriptRam(HGWScripts.HACK, "home");
 }
 
 /** @param {NS} ns
@@ -56,9 +56,9 @@ export function getWeakenThreads(ns, target, hackAmount = 0.10, operation = null
     const growThreads = getGrowThreads(ns, target, hackAmount);
 
     var targetSecurityIncrease = 0;
-    if (operation == hgwOperations.Grow) {
+    if (operation == HGWOperations.GROW) {
         targetSecurityIncrease = getGrowSecurity(ns, growThreads);
-    } else if (operation == hgwOperations.Hack) {
+    } else if (operation == HGWOperations.HACK) {
         targetSecurityIncrease = getHackSecurity(ns, hackThreads);
     }
     else {

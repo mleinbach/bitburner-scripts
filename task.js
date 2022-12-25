@@ -1,4 +1,4 @@
-import { hgwScripts } from "./constants"
+import { HGWScripts, TaskStatus, HGWOperations } from "./constants"
 import { NSProcess } from "./nsProcess"
 
 export class Task extends NSProcess {
@@ -8,9 +8,9 @@ export class Task extends NSProcess {
      * @param {Number} duration
      * @param {Number} finishOrder
      */
-    constructor(ns, target, script, duration, finishOrder, resources, name) {
+    constructor(ns, target, script, finishOrder, resources, name) {
         super(ns, target, script)
-        this.duration = duration;
+        this.duration = resources.Duration;
         this.finishOrder = finishOrder;
         this.resources = resources;
         this.name = name
@@ -19,6 +19,8 @@ export class Task extends NSProcess {
         /** @type {String} */
         this.worker = null;
         this.expectedEndTime = null;
+        this.status = TaskStatus.NOT_STARTED;
+        this.executeSecurity = null;
     }
 
     totalDuration() {
@@ -38,19 +40,8 @@ export class HackTask extends Task {
      * @param {Number} finishOrder 
      * @param {any} resources
      */
-    constructor(ns, target, finishOrder, resources) {
-        // let duration = 0;
-        // if (this.ns.fileExists("Formulas.exe")) {
-        //     let server = this.ns.getServer(this.target);
-        //     let player = this.ns.getPlayer();
-        //     server.hackDifficulty = server.minDifficulty;
-        //     duration = this.ns.formulas.hacking.hackTime(server, player)
-        // } else {
-        //     duration = Math.floor(ns.getHackTime(target));
-        // }
-        let duration = ns.getHackTime(target);
-        
-        super(ns, target, hgwScripts.Hack, duration, finishOrder, resources, "Hack");
+    constructor(ns, target, finishOrder, resources) {        
+        super(ns, target, HGWScripts.HACK, finishOrder, resources, HGWOperations.HACK);
     }
 
     expectedDuration() {
@@ -66,18 +57,7 @@ export class GrowTask extends Task {
      * @param {any} resources
      */
     constructor(ns, target, finishOrder, resources) {
-        // let duration = 0;
-        // if (this.ns.fileExists("Formulas.exe")) {
-        //     let server = this.ns.getServer(this.target);
-        //     let player = this.ns.getPlayer();
-        //     server.hackDifficulty = server.minDifficulty;
-        //     duration = this.ns.formulas.hacking.growTime(server, player)
-        // } else {
-        //     duration = Math.floor(ns.getGrowTime(target));
-        // }
-        let duration = ns.getGrowTime(target);
-
-        super(ns, target, hgwScripts.Grow, duration, finishOrder, resources, "Grow")
+        super(ns, target, HGWScripts.GROW, finishOrder, resources, HGWOperations.GROW)
     }
 
     expectedDuration() {
@@ -93,19 +73,7 @@ export class WeakenTask extends Task {
      * @param {any} resources
      */
     constructor(ns, target, finishOrder, resources) {
-        // let duration = 0;
-        // if (this.ns.fileExists("Formulas.exe")) {
-        //     let server = this.ns.getServer(this.target);
-        //     let player = this.ns.getPlayer();
-        //     server.hackDifficulty = server.minDifficulty;
-        //     duration = this.ns.formulas.hacking.weakenTime(server, player)
-        // } else {
-        //     duration = Math.floor(ns.getWeakenTime(target));
-        // }
-
-        let duration = ns.getWeakenTime(target);
-
-        super(ns, target, hgwScripts.Weaken, duration, finishOrder, resources, "Weaken");
+        super(ns, target, HGWScripts.WEAKEN, finishOrder, resources, HGWOperations.WEAKEN);
     }
 
     expectedDuration() {

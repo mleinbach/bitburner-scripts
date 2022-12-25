@@ -185,6 +185,7 @@ export class Scheduler {
     updateBatchRunners() {
         this.logger.trace("updateBatchRunners()");
 
+        this.batchRunners.forEach((r) => r.cancelHackLevelUpBatch());
         // check batch tasks expected end time for drift > tolerance.
         this.batchRunners.forEach((r) => r.checkBatchEstimatedTimes());
 
@@ -205,6 +206,7 @@ export class Scheduler {
         }
 
         for (let runner of this.initializingRunners) {
+            runner.checkTargetInitialization();
             if (runner.initializing) {
                 continue;
             }
@@ -219,6 +221,7 @@ export class Scheduler {
         for (let runner of this.batchRunners) {
             let zombieBatches = runner.getZombieBatches();
             if (zombieBatches.length > 0) {
+                this.logger.warn(`Zombie batches detected, resetting.`);
                 runner.needsReset = true;
             }
             if (runner.needsReset) {
@@ -253,22 +256,8 @@ export class Scheduler {
         }
 
         let executionPlan = runner.getExecutionPlan(hackAmount);
-        // run only gw part of plan if initializing
         if (runner.initializing) {
-            executionPlan.tasks = executionPlan.tasks.filter((t) => t.finishOrder > 1);
-            // Total cludge, but if the security level of the server doesn't start out at min
-            // then we'll kinda get stuck at a random security level because of how execution plan
-            // is calculating weaken threads based on grow amount.
-            // Add threads needed to mitigate growth security increase to the amount of threads
-            // needed to weaken security to min from current level.
-            let currentWeakenThreads = executionPlan.tasks[0].resources.Threads
-
-            let weakenAmount = this.ns.getServerSecurityLevel(runner.target) - this.ns.getServerMinSecurityLevel(runner.target);
-            let weakenThreads = weakenAnalyzeThreads(this.ns, weakenAmount);
-            executionPlan.tasks[0].resources = {
-                Threads: (weakenThreads + currentWeakenThreads),
-                Ram: getWeakenScriptRam(this.ns) * (weakenThreads + currentWeakenThreads)
-            };
+            executionPlan = runner.getInitializeExecutionPlan(hackAmount);
         }
 
         // try to reserve resources
@@ -295,7 +284,7 @@ export class Scheduler {
         this.logger.trace(`initializeBatchRunnerTarget(): ${runner.target}`);
         runner.initializing = true;
         this.initializingRunners.push(runner);
-        if (runner.checkTargetInitialization()) {
+        if (!runner.checkTargetStatus()) {
             // hack amount is different upon initilization
             let maxMoney = this.ns.getServerMoneyAvailable(runner.target);
             let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(runner.target));
