@@ -6,7 +6,7 @@ export const timing = {
 export const verbosity = 3;
 
 export const schedulerConfig = {
-    maxBatches: 200,
+    maxBatches: 250,
     statsInterval: 10000, //ms
     updateInterval: 50, //ms
     hackAmount: 0.10,
