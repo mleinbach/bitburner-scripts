@@ -3,7 +3,7 @@ import { ExecutionPlan } from "./executionPlan";
 import { BatchJob, BatchJobStatus } from "./job";
 import { Logger } from "./logger";
 import { timing } from "./config";
-import { HGWOperations, TaskStatus } from "./constants";
+import { HGWOperations, RunnerStages, TaskStatus } from "./constants";
 
 export class BatchRunner {
     /**
@@ -25,6 +25,7 @@ export class BatchRunner {
         this.hackAmount = hackAmount;
         /** @type {BatchJob[]} */
         this.batches = [];
+        this.stage = RunnerStages.INITIALIZING;
         this.needsReset = false;
         this.initializing = false;
         this.now = Date.now();
@@ -32,6 +33,7 @@ export class BatchRunner {
         /** @type {BatchJob} */
         this.lastBatch = null;
         this.nextBatchId = 0;
+        this.runId = 0;
         this.succeededBatches = 0;
         this.failedBatches = 0;
         this.cancelledBatches = 0;
@@ -185,7 +187,7 @@ export class BatchRunner {
             });
             this.logger.info(`batchTasks=${JSON.stringify(batchTasks, null, 2)}`);
             this.failedBatches++;
-            this.needsReset = true;
+            this.stage = RunnerStages.FAILED;
         } else if (status === BatchJobStatus.success) {
             if (this.lastBatch === null) {
                 this.lastBatch = batch;
@@ -226,7 +228,7 @@ export class BatchRunner {
                     this.logger.info(`lastBatchTasks=${JSON.stringify(lastBatchTasks, null, 2)}`);
                     this.logger.info(`currentBatchTasks=${JSON.stringify(currentBatchTasks, null, 2)}`);
                     this.failedBatches++;
-                    this.needsReset = true;
+                    this.stage = RunnerStages.FAILED;
                 }
             }
         } else if (status === BatchJobStatus.cancelled) {
@@ -236,16 +238,9 @@ export class BatchRunner {
         }
     }
 
-    checkTargetStatus() {
+    isTargetInitialized() {
         return this.ns.getServerMaxMoney(this.target) <= this.ns.getServerMoneyAvailable(this.target)
             && this.ns.getServerMinSecurityLevel(this.target) >= this.ns.getServerSecurityLevel(this.target);
-    }
-
-    checkTargetInitialization() {
-        if (this.initializing && this.checkTargetStatus()) {
-            this.initializing = false;
-        }
-        return this.initializing;
     }
 
     getNextBatchId() {

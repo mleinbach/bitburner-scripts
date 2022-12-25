@@ -23,6 +23,14 @@ export const TaskStatus = {
     CANCELLED: "CANCELLED"
 }
 
+export const RunnerStages = {
+    INITIALIZING: "INITIALIZING",
+    QUEUEING: "QUEUEING",
+    RUNNING: "RUNNING",
+    COMPLETED: "COMPLETED",
+    FAILED: "FAILED"
+}
+
 export const EMPTY_PORT = "NULL PORT DATA"
 export const ports = {
     BATCH_STATUS: 1

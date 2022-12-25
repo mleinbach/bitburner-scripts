@@ -2,7 +2,7 @@ import { getAllServers, getRoot, updateScripts } from "./utilities";
 import { Logger } from "./logger";
 import { BatchRunner } from "./batchRunner";
 import { schedulerConfig as config, timing } from "./config";
-import { EMPTY_PORT, ports } from "./constants";
+import { EMPTY_PORT, ports, RunnerStages } from "./constants";
 import { BatchJob } from "./job";
 import { weakenAnalyzeThreads, getWeakenScriptRam, analyzeIncomeRate } from "./hgwUtilities";
 
@@ -42,7 +42,6 @@ export class Scheduler {
         /** @type {BatchRunner[]} */
         this.batchRunners = [];
         /** @type {BatchRunner[]} */
-        this.initializingRunners = [];
         this.statsInterval = config.statsInterval;
         this.now = Date.now();
         this.maxRunners = config.maxRunners;
@@ -205,43 +204,43 @@ export class Scheduler {
             this.batchRunners[ix].updateBatchStatus(portData);
         }
 
-        for (let runner of this.initializingRunners) {
-            runner.checkTargetInitialization();
-            if (runner.initializing) {
-                continue;
-            }
-
-            let executionPlan = runner.getExecutionPlan();
-            let maxBatches = Math.floor(executionPlan.getDuration() / (4 * timing.batchTaskDelay));
-            runner.maxBatches = maxBatches;
-        }
-
-        this.initializingRunners = this.initializingRunners.filter((r) => r.initializing);
-
         for (let runner of this.batchRunners) {
             let zombieBatches = runner.getZombieBatches();
             if (zombieBatches.length > 0) {
                 this.logger.warn(`Zombie batches detected, resetting.`);
-                runner.needsReset = true;
+                runner.stage = RunnerStages.FAILED;
             }
-            if (runner.needsReset) {
+            if (runner.stage === RunnerStages.FAILED) {
                 // reinitialize
                 runner.cancelJobs();
                 runner.batches.forEach((j) => this.releaseWorkers(j));
                 runner.reset();
                 runner.maxBatches = 1;
                 this.initializeBatchRunnerTarget(runner);
-            } else {
+            } else if (runner.stage === RunnerStages.RUNNING) {
                 // release workers for finished jobs
                 let completedBatches = runner.getCompletedBatches();
                 completedBatches.forEach((j) => this.releaseWorkers(j));
-
                 // clear finished jobs
                 runner.updateBatches();
-
+                if (runner.batches.length === 0) {
+                    runner.stage = RunnerStages.COMPLETED;
+                }
+            } else if (runner.stage === RunnerStages.QUEUEING) {
                 // create new job
-
                 this.startNewBatch(runner);
+            } else if (runner.stage === RunnerStages.COMPLETED) {
+                // create new job
+                runner.stage = RunnerStages.QUEUEING;
+                this.startNewBatch(runner);
+            } else if (runner.stage === RunnerStages.INITIALIZING) {
+                if(!runner.isTargetInitialized()) {
+                    continue;
+                }
+                let executionPlan = runner.getExecutionPlan();
+                let maxBatches = Math.floor(executionPlan.getDuration() / (4 * timing.batchTaskDelay));
+                runner.maxBatches = maxBatches;
+                runner.stage = RunnerStages.QUEUEING;
             }
         }
     }
@@ -249,14 +248,17 @@ export class Scheduler {
     /** @param {BatchRunner} runner */
     startNewBatch(runner, hackAmount = null) {
         this.logger.trace(`startNewBatch(): ${runner.target} ${runner.timeSinceLastBatch} ${runner.batches.length}`);
-        if (runner.getTimeSinceLastBatch() < timing.newBatchDelay
-            || runner.batches.length >= runner.maxBatches
-            || this.getTotalBatches() >= this.maxBatches) {
-            return
+        if (runner.batches.length >= runner.maxBatches || this.getTotalBatches() >= this.maxBatches) {
+            runner.stage = RunnerStages.RUNNING;
+            return;
+        }
+
+        if (runner.getTimeSinceLastBatch() < timing.newBatchDelay) {
+            return;
         }
 
         let executionPlan = runner.getExecutionPlan(hackAmount);
-        if (runner.initializing) {
+        if (runner.stage === RunnerStages.INITIALIZING) {
             executionPlan = runner.getInitializeExecutionPlan(hackAmount);
         }
 
@@ -282,9 +284,8 @@ export class Scheduler {
     /** @param {BatchRunner} runner */
     initializeBatchRunnerTarget(runner) {
         this.logger.trace(`initializeBatchRunnerTarget(): ${runner.target}`);
-        runner.initializing = true;
-        this.initializingRunners.push(runner);
-        if (!runner.checkTargetStatus()) {
+        runner.stage = RunnerStages.INITIALIZING;
+        if (!runner.isTargetInitialized()) {
             // hack amount is different upon initilization
             let maxMoney = this.ns.getServerMoneyAvailable(runner.target);
             let hackAmount = maxMoney / Math.max(1, maxMoney - this.ns.getServerMoneyAvailable(runner.target));
@@ -362,6 +363,7 @@ export class Scheduler {
         this.batchRunners.map((r) => {
             return {
                 target: r.target,
+                stage: r.stage,
                 running: r.batches.length,
                 succeeded: r.succeededBatches,
                 failed: r.failedBatches,

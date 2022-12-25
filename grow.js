@@ -28,15 +28,6 @@ export async function main(ns) {
             ns.exit();
         }
 
-        let newDuration = ns.getGrowTime(target);
-        let curDuration = duration;
-        while(curDuration - newDuration > 20) {
-            let newDelay = curDuration - newDuration;
-            await ns.sleep(newDelay);
-            curDuration = newDuration;
-            newDuration = ns.getGrowTime(target);
-        }
-
         portData.executeTime = Date.now();
         portData.status = TaskStatus.EXECUTING;
         portData.executeSecurity = ns.getServerSecurityLevel(target);
